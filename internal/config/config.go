@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -415,6 +416,20 @@ func (c Config) Validate() error {
 
 	if strings.TrimSpace(c.DatabasePath) == "" {
 		return errors.New("database path is empty")
+	}
+	if c.DatabasePath == ":memory:" {
+		return errors.New("database path must be file-backed; in-memory sqlite databases are not supported")
+	}
+	if strings.HasPrefix(c.DatabasePath, "file:") {
+		dsnURL, err := url.Parse(c.DatabasePath)
+		if err != nil {
+			return fmt.Errorf("database path is not a valid sqlite file URI: %w", err)
+		}
+
+		query := dsnURL.Query()
+		if strings.EqualFold(query.Get("mode"), "memory") || strings.EqualFold(query.Get("vfs"), "memdb") {
+			return errors.New("database path must be file-backed; in-memory sqlite databases are not supported")
+		}
 	}
 
 	if c.PollTimeout <= 0 {

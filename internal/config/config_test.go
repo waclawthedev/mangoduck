@@ -11,6 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func boolPtr(value bool) *bool {
+	return &value
+}
+
 func TestLoadReadsValuesFromConfigYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
@@ -119,6 +123,36 @@ admin:
 	require.True(t, cfg.OpenAIWebSearchEnabled())
 	require.True(t, cfg.XSearchEnabled())
 	require.Empty(t, cfg.MCP.Servers)
+}
+
+func TestValidateRejectsInMemoryDatabasePath(t *testing.T) {
+	var cfg config.Config
+	cfg.TelegramToken = "telegram-token"
+	cfg.AdminTGIDs = []int64{42}
+	cfg.DatabasePath = ":memory:"
+	cfg.PollTimeout = 10 * time.Second
+	cfg.ResponsesTimeout = 30 * time.Second
+	cfg.EnableOpenAIWebSearch = boolPtr(false)
+	cfg.EnableXSearch = boolPtr(false)
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
+}
+
+func TestValidateRejectsInMemoryDatabaseURI(t *testing.T) {
+	var cfg config.Config
+	cfg.TelegramToken = "telegram-token"
+	cfg.AdminTGIDs = []int64{42}
+	cfg.DatabasePath = "file:shared-memory?mode=memory&cache=shared"
+	cfg.PollTimeout = 10 * time.Second
+	cfg.ResponsesTimeout = 30 * time.Second
+	cfg.EnableOpenAIWebSearch = boolPtr(false)
+	cfg.EnableXSearch = boolPtr(false)
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
 }
 
 func TestLoadAllowsDisablingBuiltInSearchTools(t *testing.T) {

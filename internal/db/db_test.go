@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,6 +13,55 @@ import (
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
+
+func TestSQLiteDSN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		dbPath string
+		want   string
+	}{
+		{
+			name:   "relative path",
+			dbPath: "mangoduck.db",
+			want:   "mangoduck.db?_pragma=busy_timeout%285000%29",
+		},
+		{
+			name:   "absolute path",
+			dbPath: "/tmp/mangoduck.db",
+			want:   "/tmp/mangoduck.db?_pragma=busy_timeout%285000%29",
+		},
+		{
+			name:   "file uri preserves query",
+			dbPath: "file:mangoduck.db?cache=shared",
+			want:   "file:mangoduck.db",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := sqliteDSN(tt.dbPath)
+			if !strings.HasPrefix(tt.dbPath, "file:") {
+				require.Equal(t, tt.want, got)
+				return
+			}
+
+			parsed, err := url.Parse(got)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, parsed.Scheme+":"+parsed.Opaque)
+			require.Equal(t, "shared", parsed.Query().Get("cache"))
+			require.Equal(t, []string{fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMillis)}, parsed.Query()["_pragma"])
+		})
+	}
+}
+
+func TestOpenRejectsInMemorySQLiteDatabase(t *testing.T) {
+	_, err := Open(":memory:")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
+}
 
 func TestOpenAppliesSquashedInitialMigration(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "fresh.db")
@@ -80,6 +130,12 @@ func TestOpenConfiguresSQLiteForConcurrentAccess(t *testing.T) {
 	err = conn.QueryRowContext(context.Background(), `PRAGMA busy_timeout`).Scan(&busyTimeoutMillis)
 	require.NoError(t, err)
 	require.Equal(t, sqliteBusyTimeoutMillis, busyTimeoutMillis)
+}
+
+func TestOpenRejectsInMemorySQLiteURI(t *testing.T) {
+	_, err := Open("file:shared-memory?mode=memory&cache=shared")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
 }
 
 func TestOpenHandlesConcurrentWrites(t *testing.T) {
