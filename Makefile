@@ -8,7 +8,7 @@ DOCKER_RUN := docker run --rm \
 	-v "$(HOME)/go/pkg/mod":/go/pkg/mod \
 	-e GOMODCACHE=/go/pkg/mod
 
-.PHONY: go lint tidy fmt vet test build check generate-mocks
+.PHONY: go lint tidy fmt vet test build build-amd64 check generate-mocks
 
 # Run arbitrary go commands: make go CMD="build ./..."
 go:
@@ -28,6 +28,9 @@ test:
 
 build:
 	$(DOCKER_RUN) $(GO_IMAGE) go build ./...
+
+build-amd64:
+	$(DOCKER_RUN) -e GOOS=linux -e GOARCH=amd64 $(GO_IMAGE) sh -c "mkdir -p ./bin && go build -o ./bin/mangoduck ./cmd/mangoduck"
 
 generate-mocks:
 	$(DOCKER_RUN) $(GO_IMAGE) sh -c "go install github.com/vektra/mockery/v3@v3.7.0 && go generate ./..."
