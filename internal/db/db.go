@@ -6,7 +6,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -43,7 +42,7 @@ func Open(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 
-	if err := configureSQLite(conn, dbPath); err != nil {
+	if err := configureSQLite(conn); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("configuring database: %w", err)
 	}
@@ -57,121 +56,36 @@ func Open(dbPath string) (*sql.DB, error) {
 }
 
 func validateDBPath(dbPath string) error {
-	if strings.TrimSpace(dbPath) == "" {
+	dbPath = strings.TrimSpace(dbPath)
+	if dbPath == "" {
 		return errors.New("database path is empty")
 	}
-
-	if dbPath == ":memory:" {
-		return errors.New("in-memory sqlite databases are not supported; use a file-backed database path")
-	}
-
-	dsnURL, ok := sqliteURI(dbPath)
-	if !ok {
-		return nil
-	}
-
-	query := dsnURL.Query()
-	if strings.EqualFold(query.Get("mode"), "memory") {
-		return errors.New("in-memory sqlite databases are not supported; use a file-backed database path")
-	}
-	if strings.EqualFold(query.Get("vfs"), "memdb") {
-		return errors.New("in-memory sqlite databases are not supported; use a file-backed database path")
+	if strings.Contains(dbPath, "?") || strings.Contains(dbPath, "#") || strings.HasPrefix(dbPath, "file:") {
+		return errors.New("database path must be a sqlite file path, not a URI")
 	}
 
 	return nil
 }
 
 func sqliteDSN(dbPath string) string {
-	query := url.Values{}
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMillis))
-
-	if strings.HasPrefix(dbPath, "file:") {
-		dsnURL, ok := sqliteURI(dbPath)
-		if !ok {
-			return dbPath
-		}
-
-		mergedQuery := dsnURL.Query()
-		for key, values := range query {
-			for _, value := range values {
-				mergedQuery.Add(key, value)
-			}
-		}
-		dsnURL.RawQuery = mergedQuery.Encode()
-
-		return dsnURL.String()
-	}
-
-	return dbPath + "?" + query.Encode()
+	return fmt.Sprintf("%s?_pragma=busy_timeout(%d)", dbPath, sqliteBusyTimeoutMillis)
 }
 
-func configureSQLite(conn *sql.DB, dbPath string) error {
-	if !sqliteSupportsWAL(dbPath) {
-		return nil
-	}
-
-	journalMode, err := sqliteJournalMode(conn, "WAL")
-	if err != nil {
-		// WAL improves concurrency for file-backed databases, but the bot still
-		// works correctly with SQLite's default journal mode.
-		return nil
-	}
-	if !strings.EqualFold(journalMode, "wal") {
-		return nil
-	}
-
+func configureSQLite(conn *sql.DB) error {
+	// WAL improves concurrency for file-backed databases, but the bot still
+	// works correctly with SQLite's default journal mode.
+	_, _ = sqliteJournalMode(conn, "WAL")
 	return nil
-}
-
-func sqliteSupportsWAL(dbPath string) bool {
-	if dbPath == ":memory:" {
-		return false
-	}
-
-	dsnURL, ok := sqliteURI(dbPath)
-	if !ok {
-		return true
-	}
-
-	query := dsnURL.Query()
-
-	if strings.EqualFold(query.Get("mode"), "memory") {
-		return false
-	}
-	if strings.EqualFold(query.Get("vfs"), "memdb") {
-		return false
-	}
-	if strings.EqualFold(query.Get("immutable"), "1") {
-		return false
-	}
-	if strings.EqualFold(query.Get("mode"), "ro") {
-		return false
-	}
-
-	return true
 }
 
 func sqliteJournalMode(conn *sql.DB, mode string) (string, error) {
 	var journalMode string
-	err := conn.QueryRowContext(context.Background(), fmt.Sprintf(`PRAGMA journal_mode = %s`, mode)).Scan(&journalMode)
+	err := conn.QueryRowContext(context.Background(), `PRAGMA journal_mode = `+mode).Scan(&journalMode)
 	if err != nil {
 		return "", err
 	}
 
 	return journalMode, nil
-}
-
-func sqliteURI(dbPath string) (url.URL, bool) {
-	if !strings.HasPrefix(dbPath, "file:") {
-		return url.URL{}, false
-	}
-
-	dsnURL, err := url.Parse(dbPath)
-	if err != nil {
-		return url.URL{}, false
-	}
-
-	return *dsnURL, true
 }
 
 func runMigrations(conn *sql.DB) error {

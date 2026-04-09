@@ -129,7 +129,7 @@ func TestValidateRejectsInMemoryDatabasePath(t *testing.T) {
 	var cfg config.Config
 	cfg.TelegramToken = "telegram-token"
 	cfg.AdminTGIDs = []int64{42}
-	cfg.DatabasePath = ":memory:"
+	cfg.DatabasePath = "file:mangoduck.db?cache=shared"
 	cfg.PollTimeout = 10 * time.Second
 	cfg.ResponsesTimeout = 30 * time.Second
 	cfg.EnableOpenAIWebSearch = boolPtr(false)
@@ -137,14 +137,14 @@ func TestValidateRejectsInMemoryDatabasePath(t *testing.T) {
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
+	require.ErrorContains(t, err, "database path must be a sqlite file path, not a URI")
 }
 
-func TestValidateRejectsInMemoryDatabaseURI(t *testing.T) {
+func TestValidateRejectsQueryStringInDatabasePath(t *testing.T) {
 	var cfg config.Config
 	cfg.TelegramToken = "telegram-token"
 	cfg.AdminTGIDs = []int64{42}
-	cfg.DatabasePath = "file:shared-memory?mode=memory&cache=shared"
+	cfg.DatabasePath = "mangoduck.db?cache=shared"
 	cfg.PollTimeout = 10 * time.Second
 	cfg.ResponsesTimeout = 30 * time.Second
 	cfg.EnableOpenAIWebSearch = boolPtr(false)
@@ -152,7 +152,7 @@ func TestValidateRejectsInMemoryDatabaseURI(t *testing.T) {
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
+	require.ErrorContains(t, err, "database path must be a sqlite file path, not a URI")
 }
 
 func TestLoadAllowsDisablingBuiltInSearchTools(t *testing.T) {

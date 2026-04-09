@@ -234,7 +234,7 @@ The safe example config lives in [`config.yaml.dist`](config.yaml.dist).
 
 ### Database
 
-- `database.path`: file-backed SQLite path or file-backed SQLite `file:` URI, default `mangoduck.db`
+- `database.path`: file-backed SQLite path, default `mangoduck.db`
 
 ### Responses API
 

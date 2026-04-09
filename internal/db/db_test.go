@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,42 +24,27 @@ func TestSQLiteDSN(t *testing.T) {
 		{
 			name:   "relative path",
 			dbPath: "mangoduck.db",
-			want:   "mangoduck.db?_pragma=busy_timeout%285000%29",
+			want:   "mangoduck.db?_pragma=busy_timeout(5000)",
 		},
 		{
 			name:   "absolute path",
 			dbPath: "/tmp/mangoduck.db",
-			want:   "/tmp/mangoduck.db?_pragma=busy_timeout%285000%29",
-		},
-		{
-			name:   "file uri preserves query",
-			dbPath: "file:mangoduck.db?cache=shared",
-			want:   "file:mangoduck.db",
+			want:   "/tmp/mangoduck.db?_pragma=busy_timeout(5000)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := sqliteDSN(tt.dbPath)
-			if !strings.HasPrefix(tt.dbPath, "file:") {
-				require.Equal(t, tt.want, got)
-				return
-			}
-
-			parsed, err := url.Parse(got)
-			require.NoError(t, err)
-			require.Equal(t, tt.want, parsed.Scheme+":"+parsed.Opaque)
-			require.Equal(t, "shared", parsed.Query().Get("cache"))
-			require.Equal(t, []string{fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMillis)}, parsed.Query()["_pragma"])
+			require.Equal(t, tt.want, sqliteDSN(tt.dbPath))
 		})
 	}
 }
 
-func TestOpenRejectsInMemorySQLiteDatabase(t *testing.T) {
-	_, err := Open(":memory:")
+func TestOpenRejectsSQLiteURIPath(t *testing.T) {
+	_, err := Open("file:mangoduck.db?cache=shared")
 	require.Error(t, err)
-	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
+	require.ErrorContains(t, err, "database path must be a sqlite file path, not a URI")
 }
 
 func TestOpenAppliesSquashedInitialMigration(t *testing.T) {
@@ -132,10 +116,10 @@ func TestOpenConfiguresSQLiteForConcurrentAccess(t *testing.T) {
 	require.Equal(t, sqliteBusyTimeoutMillis, busyTimeoutMillis)
 }
 
-func TestOpenRejectsInMemorySQLiteURI(t *testing.T) {
-	_, err := Open("file:shared-memory?mode=memory&cache=shared")
+func TestOpenRejectsQueryStringInPath(t *testing.T) {
+	_, err := Open("mangoduck.db?cache=shared")
 	require.Error(t, err)
-	require.ErrorContains(t, err, "in-memory sqlite databases are not supported")
+	require.ErrorContains(t, err, "database path must be a sqlite file path, not a URI")
 }
 
 func TestOpenHandlesConcurrentWrites(t *testing.T) {
