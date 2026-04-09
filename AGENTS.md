@@ -9,7 +9,7 @@
 - Go is NOT installed locally — all Go commands MUST be run via `Makefile` targets (which use Docker)
 - Go module cache with downloaded library sources is available at `$(HOME)/go/pkg/mod`
 - Use `make go CMD="..."` for arbitrary go commands
-- Available targets: `make tidy`, `make fmt`, `make vet`, `make test`, `make build`, `make lint`
+- Available targets: `make tidy`, `make fmt`, `make vet`, `make test`, `make build`, `make build-amd64`, `make lint`
 - NEVER run `go` directly — always use `make`
 - NEVER run `docker` directly — only use `make` targets
 

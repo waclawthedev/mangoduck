@@ -1,6 +1,7 @@
 .idea
 .claude
 .env
+bin/
 config.toml
 config.yaml
 *.db
