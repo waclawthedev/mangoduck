@@ -1,0 +1,64 @@
+telegram:
+  token: "replace-with-telegram-bot-token"
+  poll_timeout: "10s"
+
+admin:
+  tg_ids:
+    - 123456789
+
+database:
+  path: "mangoduck.db"
+
+responses:
+  base_url: "http://127.0.0.1:8787"
+  provider: "openai"
+  provider_api_key: "replace-with-provider-api-key"
+  model: "gpt-5.4-nano"
+  timeout: "30s"
+
+built_it_tools:
+  web_search:
+    enabled: false
+    api_key: "replace-with-openai-web-search-api-key"
+    base_url: "https://api.openai.com"
+    model: "gpt-5.4-nano"
+    timeout: "30s"
+  x_search:
+    enabled: false
+    api_key: "replace-with-xai-api-key"
+    base_url: "https://api.x.ai"
+    model: "grok-4-1-fast-reasoning"
+    timeout: "30s"
+
+mcp:
+  servers:
+    - name: "dummy"
+      enabled: false
+      transport: "streamable_http"
+      http:
+        url: "https://local/mcp"
+        auth_bearer: "replace-with-github-mcp-bearer-token"
+        headers:
+          x-team: "backend"
+
+    - name: "context7"
+      enabled: false
+      transport: "streamable_http"
+      http:
+        url: "https://mcp.context7.com/mcp"
+        auth_bearer: "replace-with-notion-mcp-bearer-token"
+        headers:
+          x-workspace: "product"
+
+    - name: "filesystem"
+      enabled: false
+      transport: "stdio"
+      stdio:
+        command: "npx"
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-filesystem"
+          - "/tmp"
+        cwd: "/tmp"
+        env:
+          HOME: "/tmp/mangoduck-mcp-home"

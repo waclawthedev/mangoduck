@@ -1,0 +1,9 @@
+.idea
+.claude
+.env
+config.toml
+config.yaml
+*.db
+*.db-shm
+*.db-wal
+.DS_Store

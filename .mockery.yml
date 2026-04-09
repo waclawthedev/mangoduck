@@ -1,0 +1,7 @@
+packages:
+  mangoduck/internal/handlers:
+    interfaces:
+      Context:
+        config:
+          dir: "{{.InterfaceDir}}/mocks"
+          filename: context_mock.go

@@ -1,0 +1,39 @@
+version: "2"
+linters:
+  default: all
+  disable:
+    - wsl
+    - wsl_v5
+    - depguard
+    - ireturn
+    - varnamelen
+    - noinlineerr
+    - errchkjson
+    - nlreturn
+    - tagliatelle
+    - exhaustruct
+    - wrapcheck
+    - lll
+    - containedctx
+    - contextcheck
+    - cyclop
+    - dupl
+    - err113
+    - funlen
+    - gochecknoglobals
+    - gocyclo
+    - gocognit
+    - goconst
+    - gosmopolitan
+    - mnd
+    - modernize
+    - paralleltest
+    - nestif
+    - nilnil
+    - testpackage
+    - unparam
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
