@@ -481,7 +481,7 @@ func TestChat_BuildsPhotoOnlyRequest(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "", request.Message)
+			require.Empty(t, request.Message)
 			require.NotNil(t, request.Image)
 			require.Equal(t, "image/png", request.Image.MIMEType)
 			return &llmchat.Result{Text: "Image received"}, nil

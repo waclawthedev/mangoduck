@@ -120,6 +120,20 @@ type executionRequest struct {
 	NotifyToolCall  ToolCallNotifier
 }
 
+type executionSession struct {
+	message        string
+	userItem       json.RawMessage
+	input          []json.RawMessage
+	toolRuntime    ToolRuntime
+	tools          []*responses.Tool
+	userItemStored bool
+}
+
+type stepState struct {
+	usedTool          bool
+	placeholderNeeded bool
+}
+
 type Service struct {
 	client           responses.Client
 	xSearcher        XSearchExecutor
@@ -292,6 +306,43 @@ func (s *Service) run(ctx context.Context, request *executionRequest) (*Result, 
 		return nil, ErrMissingMessage
 	}
 
+	session, err := s.prepareExecutionSession(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if session != nil && session.toolRuntime != nil {
+			_ = session.toolRuntime.Close()
+		}
+	}()
+
+	var state stepState
+
+	for step := range s.maxSteps {
+		result, err := s.executeStep(ctx, request, session, &state, step)
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			return result, nil
+		}
+	}
+
+	text := ""
+	if state.usedTool {
+		text = DefaultNoResponseText
+	}
+
+	s.logger.Debug("chat execution reached max steps", zap.Int64("chat_id", request.ChatID), zap.Int("max_steps", s.maxSteps), zap.Bool("used_tool", state.usedTool), zap.Int("text_len", len(text)))
+
+	return &Result{
+		Text:              text,
+		UsedTool:          state.usedTool,
+		PlaceholderNeeded: state.placeholderNeeded,
+	}, nil
+}
+
+func (s *Service) prepareExecutionSession(ctx context.Context, request *executionRequest) (*executionSession, error) {
 	message := strings.TrimSpace(request.Message)
 	if message == "" && !hasInputImage(request.Image) {
 		return nil, ErrMissingMessage
@@ -299,20 +350,14 @@ func (s *Service) run(ctx context.Context, request *executionRequest) (*Result, 
 
 	s.logger.Debug("chat execution started", zap.Int64("chat_id", request.ChatID), zap.Int64("user_tg_id", request.UserTGID), zap.Bool("persist_history", request.PersistHistory), zap.Bool("enable_cron_tools", request.EnableCronTools), zap.Bool("is_scheduled", request.IsScheduled), zap.Int("message_len", len(message)))
 
-	var history []json.RawMessage
-	var err error
-	if request.PersistHistory {
-		history, err = s.historyStore.List(ctx, request.ChatID)
-		if err != nil {
-			return nil, fmt.Errorf("listing chat history: %w", err)
-		}
+	history, err := s.loadHistory(ctx, request)
+	if err != nil {
+		return nil, err
 	}
 
-	memoryText, err := s.memoryStore.GetMemory(ctx, request.ChatID)
-	if errors.Is(err, repo.ErrChatNotFound) {
-		memoryText = ""
-	} else if err != nil {
-		return nil, fmt.Errorf("getting chat memory: %w", err)
+	memoryText, err := s.loadMemory(ctx, request.ChatID)
+	if err != nil {
+		return nil, err
 	}
 
 	userItem, err := buildUserMessageItem(message, request.Image)
@@ -325,142 +370,183 @@ func (s *Service) run(ctx context.Context, request *executionRequest) (*Result, 
 		return nil, err
 	}
 
-	input := append([]json.RawMessage{systemItem}, cloneRawMessages(history)...)
-	input = append(input, userItem)
-
 	toolRuntime, err := s.toolRuntime.OpenSession(ctx)
 	if err != nil {
 		s.logger.Error("failed to open tool runtime", zap.Error(err))
 		return nil, fmt.Errorf("open tool runtime: %w", err)
 	}
-	defer func() {
-		if toolRuntime != nil {
-			_ = toolRuntime.Close()
-		}
-	}()
 
-	tools := buildTools(request.EnableCronTools, s.xSearchEnabled, s.webSearchEnabled, toolRuntime)
+	var session executionSession
+	session.message = message
+	session.userItem = userItem
+	session.input = append([]json.RawMessage{systemItem}, cloneRawMessages(history)...)
+	session.input = append(session.input, userItem)
+	session.toolRuntime = toolRuntime
+	session.tools = buildTools(request.EnableCronTools, s.xSearchEnabled, s.webSearchEnabled, toolRuntime)
 
-	var (
-		usedTool          bool
-		placeholderNeeded bool
-		userItemStored    bool
-		storeDisabled     = false
-		parallelToolCalls = false
-	)
+	return &session, nil
+}
 
-	for step := range s.maxSteps {
-		s.logger.Debug("chat step started", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.Int("input_items", len(input)), zap.Int("tools", len(tools)))
-		response, err := s.client.CreateResponse(ctx, &responses.CreateResponseRequest{
-			Model:             s.model,
-			Input:             input,
-			Store:             &storeDisabled,
-			ParallelToolCalls: &parallelToolCalls,
-			Tools:             tools,
-			ToolChoice:        "auto",
-		})
-		if err != nil {
-			s.logger.Error("chat response request failed", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.Error(err))
-			return nil, err
-		}
-
-		if request.PersistHistory && !userItemStored {
-			err = s.historyStore.Append(ctx, request.ChatID, []json.RawMessage{userItem})
-			if err != nil {
-				return nil, fmt.Errorf("appending user item to chat history: %w", err)
-			}
-
-			userItemStored = true
-		}
-
-		historyItems, err := buildHistoryItems(response)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(historyItems) > 0 {
-			if request.PersistHistory {
-				err = s.historyStore.Append(ctx, request.ChatID, historyItems)
-				if err != nil {
-					return nil, fmt.Errorf("appending response items to chat history: %w", err)
-				}
-			}
-
-			input = append(input, cloneRawMessages(historyItems)...)
-		}
-
-		functionCalls := response.FunctionCalls()
-		if len(functionCalls) > 1 {
-			s.logger.Error("chat response returned too many function calls", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.Int("function_calls", len(functionCalls)))
-			return nil, ErrTooManyFunctionCallsInStep
-		}
-
-		if len(functionCalls) == 0 {
-			text := strings.TrimSpace(response.OutputText())
-			if text == "" && !usedTool {
-				text = DefaultNoResponseText
-			}
-
-			s.logger.Debug("chat execution finished without further tool calls", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.Bool("used_tool", usedTool), zap.Int("text_len", len(text)))
-
-			return &Result{
-				Text:              text,
-				UsedTool:          usedTool,
-				PlaceholderNeeded: placeholderNeeded,
-			}, nil
-		}
-
-		call := functionCalls[0]
-		if call == nil {
-			s.logger.Error("chat response returned nil function call", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1))
-			return nil, errors.New("chat function call is nil")
-		}
-
-		if request.NotifyToolCall != nil {
-			err := request.NotifyToolCall(buildToolCallStatusText(call))
-			if err != nil {
-				return nil, fmt.Errorf("notifying chat tool call: %w", err)
-			}
-		}
-
-		placeholderNeeded = true
-		usedTool = true
-		s.logger.Debug("executing chat tool call", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.String("tool_name", strings.TrimSpace(call.Name)), zap.String("call_id", strings.TrimSpace(call.CallID)))
-
-		toolResultText, err := s.executeToolCall(ctx, call, request, toolRuntime)
-		if err != nil {
-			s.logger.Error("chat tool call failed", zap.Int64("chat_id", request.ChatID), zap.String("tool_name", strings.TrimSpace(call.Name)), zap.String("call_id", strings.TrimSpace(call.CallID)), zap.Error(err))
-			return nil, err
-		}
-		s.logger.Debug("chat tool call finished", zap.Int64("chat_id", request.ChatID), zap.String("tool_name", strings.TrimSpace(call.Name)), zap.String("call_id", strings.TrimSpace(call.CallID)), zap.Int("output_len", len(strings.TrimSpace(toolResultText))))
-
-		functionCallOutput, err := buildFunctionCallOutputItem(strings.TrimSpace(call.CallID), strings.TrimSpace(toolResultText))
-		if err != nil {
-			return nil, err
-		}
-
-		if request.PersistHistory {
-			err = s.historyStore.Append(ctx, request.ChatID, []json.RawMessage{functionCallOutput})
-			if err != nil {
-				return nil, fmt.Errorf("appending function call output to chat history: %w", err)
-			}
-		}
-
-		input = append(input, functionCallOutput)
+func (s *Service) loadHistory(ctx context.Context, request *executionRequest) ([]json.RawMessage, error) {
+	if !request.PersistHistory {
+		return nil, nil
 	}
 
-	text := ""
-	if usedTool {
+	history, err := s.historyStore.List(ctx, request.ChatID)
+	if err != nil {
+		return nil, fmt.Errorf("listing chat history: %w", err)
+	}
+
+	return history, nil
+}
+
+func (s *Service) loadMemory(ctx context.Context, chatID int64) (string, error) {
+	memoryText, err := s.memoryStore.GetMemory(ctx, chatID)
+	if errors.Is(err, repo.ErrChatNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("getting chat memory: %w", err)
+	}
+
+	return memoryText, nil
+}
+
+func (s *Service) executeStep(ctx context.Context, request *executionRequest, session *executionSession, state *stepState, step int) (*Result, error) {
+	response, err := s.createStepResponse(ctx, request, session, step)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.appendStoredUserItem(ctx, request, session); err != nil {
+		return nil, err
+	}
+
+	if err := s.appendResponseHistory(ctx, request, session, response); err != nil {
+		return nil, err
+	}
+
+	functionCalls := response.FunctionCalls()
+	if len(functionCalls) > 1 {
+		s.logger.Error("chat response returned too many function calls", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.Int("function_calls", len(functionCalls)))
+		return nil, ErrTooManyFunctionCallsInStep
+	}
+
+	if len(functionCalls) == 0 {
+		return s.buildFinalResult(request.ChatID, step, response, state), nil
+	}
+
+	return nil, s.handleFunctionCall(ctx, request, session, state, step, functionCalls[0])
+}
+
+func (s *Service) createStepResponse(ctx context.Context, request *executionRequest, session *executionSession, step int) (*responses.Response, error) {
+	storeDisabled := false
+	parallelToolCalls := false
+
+	s.logger.Debug("chat step started", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.Int("input_items", len(session.input)), zap.Int("tools", len(session.tools)))
+
+	response, err := s.client.CreateResponse(ctx, &responses.CreateResponseRequest{
+		Model:             s.model,
+		Input:             session.input,
+		Store:             &storeDisabled,
+		ParallelToolCalls: &parallelToolCalls,
+		Tools:             session.tools,
+		ToolChoice:        "auto",
+	})
+	if err != nil {
+		s.logger.Error("chat response request failed", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.Error(err))
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func (s *Service) appendStoredUserItem(ctx context.Context, request *executionRequest, session *executionSession) error {
+	if !request.PersistHistory || session.userItemStored {
+		return nil
+	}
+
+	if err := s.historyStore.Append(ctx, request.ChatID, []json.RawMessage{session.userItem}); err != nil {
+		return fmt.Errorf("appending user item to chat history: %w", err)
+	}
+
+	session.userItemStored = true
+	return nil
+}
+
+func (s *Service) appendResponseHistory(ctx context.Context, request *executionRequest, session *executionSession, response *responses.Response) error {
+	historyItems, err := buildHistoryItems(response)
+	if err != nil {
+		return err
+	}
+
+	if len(historyItems) == 0 {
+		return nil
+	}
+
+	if request.PersistHistory {
+		if err := s.historyStore.Append(ctx, request.ChatID, historyItems); err != nil {
+			return fmt.Errorf("appending response items to chat history: %w", err)
+		}
+	}
+
+	session.input = append(session.input, cloneRawMessages(historyItems)...)
+	return nil
+}
+
+func (s *Service) buildFinalResult(chatID int64, step int, response *responses.Response, state *stepState) *Result {
+	text := strings.TrimSpace(response.OutputText())
+	if text == "" && !state.usedTool {
 		text = DefaultNoResponseText
 	}
 
-	s.logger.Debug("chat execution reached max steps", zap.Int64("chat_id", request.ChatID), zap.Int("max_steps", s.maxSteps), zap.Bool("used_tool", usedTool), zap.Int("text_len", len(text)))
+	s.logger.Debug("chat execution finished without further tool calls", zap.Int64("chat_id", chatID), zap.Int("step", step+1), zap.Bool("used_tool", state.usedTool), zap.Int("text_len", len(text)))
 
 	return &Result{
 		Text:              text,
-		UsedTool:          usedTool,
-		PlaceholderNeeded: placeholderNeeded,
-	}, nil
+		UsedTool:          state.usedTool,
+		PlaceholderNeeded: state.placeholderNeeded,
+	}
+}
+
+func (s *Service) handleFunctionCall(ctx context.Context, request *executionRequest, session *executionSession, state *stepState, step int, call *responses.FunctionCall) error {
+	if call == nil {
+		s.logger.Error("chat response returned nil function call", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1))
+		return errors.New("chat function call is nil")
+	}
+
+	if request.NotifyToolCall != nil {
+		if err := request.NotifyToolCall(buildToolCallStatusText(call)); err != nil {
+			return fmt.Errorf("notifying chat tool call: %w", err)
+		}
+	}
+
+	state.placeholderNeeded = true
+	state.usedTool = true
+
+	s.logger.Debug("executing chat tool call", zap.Int64("chat_id", request.ChatID), zap.Int("step", step+1), zap.String("tool_name", strings.TrimSpace(call.Name)), zap.String("call_id", strings.TrimSpace(call.CallID)))
+
+	toolResultText, err := s.executeToolCall(ctx, call, request, session.toolRuntime)
+	if err != nil {
+		s.logger.Error("chat tool call failed", zap.Int64("chat_id", request.ChatID), zap.String("tool_name", strings.TrimSpace(call.Name)), zap.String("call_id", strings.TrimSpace(call.CallID)), zap.Error(err))
+		return err
+	}
+
+	s.logger.Debug("chat tool call finished", zap.Int64("chat_id", request.ChatID), zap.String("tool_name", strings.TrimSpace(call.Name)), zap.String("call_id", strings.TrimSpace(call.CallID)), zap.Int("output_len", len(strings.TrimSpace(toolResultText))))
+
+	functionCallOutput, err := buildFunctionCallOutputItem(strings.TrimSpace(call.CallID), strings.TrimSpace(toolResultText))
+	if err != nil {
+		return err
+	}
+
+	if request.PersistHistory {
+		if err := s.historyStore.Append(ctx, request.ChatID, []json.RawMessage{functionCallOutput}); err != nil {
+			return fmt.Errorf("appending function call output to chat history: %w", err)
+		}
+	}
+
+	session.input = append(session.input, functionCallOutput)
+	return nil
 }
 
 func hasInputImage(image *InputImage) bool {

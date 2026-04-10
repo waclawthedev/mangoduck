@@ -12,6 +12,20 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
+func decodeSenderPayload(t *testing.T, r *http.Request) map[string]string {
+	t.Helper()
+
+	body, err := io.ReadAll(r.Body)
+	require.NoError(t, err)
+	require.NoError(t, r.Body.Close())
+
+	var payload map[string]string
+	err = json.Unmarshal(body, &payload)
+	require.NoError(t, err)
+
+	return payload
+}
+
 func TestTelegramSender_SendNormalizesEscapedTelegramHTML(t *testing.T) {
 	t.Parallel()
 
@@ -21,20 +35,16 @@ func TestTelegramSender_SendNormalizesEscapedTelegramHTML(t *testing.T) {
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.NoError(t, r.Body.Close())
-
-		var payload map[string]string
-		err = json.Unmarshal(body, &payload)
-		require.NoError(t, err)
+		payload := decodeSenderPayload(t, r)
 
 		mu.Lock()
 		calls = append(calls, payload)
 		mu.Unlock()
 
-		_, err = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":7,"type":"private"},"text":"ok"}}`))
-		require.NoError(t, err)
+		_, err := w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":7,"type":"private"},"text":"ok"}}`))
+		if err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -54,7 +64,7 @@ func TestTelegramSender_SendNormalizesEscapedTelegramHTML(t *testing.T) {
 	defer mu.Unlock()
 	require.Len(t, calls, 1)
 	require.Equal(t, "Done. <b>file.txt</b>", calls[0]["text"])
-	require.Equal(t, string(tele.ModeHTML), calls[0]["parse_mode"])
+	require.Equal(t, tele.ModeHTML, calls[0]["parse_mode"])
 }
 
 func TestTelegramSender_SendFallsBackToSanitizedHTML(t *testing.T) {
@@ -66,13 +76,7 @@ func TestTelegramSender_SendFallsBackToSanitizedHTML(t *testing.T) {
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.NoError(t, r.Body.Close())
-
-		var payload map[string]string
-		err = json.Unmarshal(body, &payload)
-		require.NoError(t, err)
+		payload := decodeSenderPayload(t, r)
 
 		mu.Lock()
 		calls = append(calls, payload)
@@ -80,13 +84,17 @@ func TestTelegramSender_SendFallsBackToSanitizedHTML(t *testing.T) {
 		mu.Unlock()
 
 		if callIndex == 1 {
-			_, err = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: unsupported start tag"}`))
-			require.NoError(t, err)
+			_, err := w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: unsupported start tag"}`))
+			if err != nil {
+				t.Errorf("write error response: %v", err)
+			}
 			return
 		}
 
-		_, err = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":7,"type":"private"},"text":"ok"}}`))
-		require.NoError(t, err)
+		_, err := w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":7,"type":"private"},"text":"ok"}}`))
+		if err != nil {
+			t.Errorf("write success response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -114,17 +122,13 @@ func TestTelegramSender_SendLeavesPlainTextUnchanged(t *testing.T) {
 
 	var text string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.NoError(t, r.Body.Close())
-
-		var payload map[string]string
-		err = json.Unmarshal(body, &payload)
-		require.NoError(t, err)
+		payload := decodeSenderPayload(t, r)
 		text = payload["text"]
 
-		_, err = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":7,"type":"private"},"text":"ok"}}`))
-		require.NoError(t, err)
+		_, err := w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":7,"type":"private"},"text":"ok"}}`))
+		if err != nil {
+			t.Errorf("write plain text response: %v", err)
+		}
 	}))
 	defer server.Close()
 

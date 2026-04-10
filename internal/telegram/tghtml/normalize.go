@@ -94,6 +94,8 @@ func normalizeEscapedTag(candidate string) (string, bool) {
 		var builder strings.Builder
 		writeEndTag(&builder, canonicalTagName)
 		return builder.String(), true
+	case xhtml.ErrorToken, xhtml.TextToken, xhtml.CommentToken, xhtml.DoctypeToken:
+		return "", false
 	default:
 		return "", false
 	}
