@@ -385,7 +385,7 @@ func TestChat_TrimsLeadingBotMentionInGroupMessage(t *testing.T) {
 
 func TestChat_BuildsPhotoCaptionRequest(t *testing.T) {
 	originalImageBuilder := requestImageBuilder
-	requestImageBuilder = func(c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
+	requestImageBuilder = func(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
 		require.NotNil(t, photo)
 
 		var image llmchat.InputImage
@@ -441,7 +441,7 @@ func TestChat_BuildsPhotoCaptionRequest(t *testing.T) {
 
 func TestChat_BuildsPhotoOnlyRequest(t *testing.T) {
 	originalImageBuilder := requestImageBuilder
-	requestImageBuilder = func(c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
+	requestImageBuilder = func(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
 		require.NotNil(t, photo)
 
 		var image llmchat.InputImage
@@ -491,6 +491,160 @@ func TestChat_BuildsPhotoOnlyRequest(t *testing.T) {
 	handler := Chat(config.Config{}, repoStub, responder)
 	err := handler(ctx)
 	require.NoError(t, err)
+}
+
+func TestChat_AppliesTimeoutBeforeBuildingPhotoRequest(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = func(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
+		require.NotNil(t, photo)
+
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.WithinDuration(t, time.Now().Add(20*time.Millisecond), deadline, 20*time.Millisecond)
+
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Photo: &tele.Photo{},
+	})
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			t.Fatal("Reply should not be called after photo builder timeout")
+			return nil, nil
+		},
+	}
+
+	var cfg config.Config
+	cfg.ResponsesTimeout = 20 * time.Millisecond
+
+	handler := Chat(cfg, repoStub, responder)
+	err := handler(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.EqualError(t, err, "reading telegram photo: context deadline exceeded")
+}
+
+func TestChat_FallsBackToCaptionWhenPhotoBuildFails(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = func(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
+		require.NotNil(t, photo)
+		return nil, errors.New("boom")
+	}
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("look at this")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Caption: "look at this",
+		Photo:   &tele.Photo{},
+	})
+	ctx.On("Send", "Caption handled", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "look at this", request.Message)
+			require.Nil(t, request.Image)
+			return &llmchat.Result{Text: "Caption handled"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_FailsPhotoOnlyRequestWhenPhotoBuildFails(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = func(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
+		require.NotNil(t, photo)
+		return nil, errors.New("boom")
+	}
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Photo: &tele.Photo{},
+	})
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			t.Fatal("Reply should not be called for image-only photo build failure")
+			return nil, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.EqualError(t, err, "reading telegram photo: boom")
 }
 
 func TestClearContext_ClearsCurrentChatHistory(t *testing.T) {

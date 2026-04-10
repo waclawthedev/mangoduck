@@ -59,6 +59,13 @@ func TestNormalize_RestoresEscapedSupportedTags(t *testing.T) {
 	require.Equal(t, expected, Normalize(input))
 }
 
+func TestNormalize_LeavesStandaloneEscapedSupportedTagsEscaped(t *testing.T) {
+	t.Parallel()
+
+	input := `Use &lt;b&gt; to start bold text.`
+	require.Equal(t, input, Normalize(input))
+}
+
 func TestNormalize_LeavesUnsupportedEscapedTagsEscaped(t *testing.T) {
 	t.Parallel()
 
@@ -78,5 +85,12 @@ func TestNormalize_LeavesExistingHTMLUntouched(t *testing.T) {
 	t.Parallel()
 
 	input := `<b>ready</b>`
+	require.Equal(t, input, Normalize(input))
+}
+
+func TestNormalize_LeavesEscapedTagsInsideCodeUntouched(t *testing.T) {
+	t.Parallel()
+
+	input := `<code>&lt;b&gt;literal&lt;/b&gt;</code>`
 	require.Equal(t, input, Normalize(input))
 }
