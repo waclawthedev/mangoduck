@@ -761,12 +761,41 @@ func normalizeIncomingMessage(c tele.Context, message string) (string, bool) {
 		return message, true
 	}
 
+	if isDirectReplyToBot(c) {
+		return message, true
+	}
+
 	botMention, ok := findBotMentionEntity(c)
 	if !ok {
 		return "", false
 	}
 
 	return trimLeadingBotMention(c, message, botMention), true
+}
+
+func isDirectReplyToBot(c tele.Context) bool {
+	message := c.Message()
+	if message == nil || message.ReplyTo == nil || message.ReplyTo.Sender == nil {
+		return false
+	}
+
+	replySender := message.ReplyTo.Sender
+	if !replySender.IsBot {
+		return false
+	}
+
+	_, botID := resolveBotIdentity(c)
+	if botID != 0 && replySender.ID == botID {
+		return true
+	}
+
+	replyUsername := strings.TrimSpace(replySender.Username)
+	botUsername, _ := resolveBotIdentity(c)
+	if replyUsername != "" && botUsername != "" && strings.EqualFold(replyUsername, botUsername) {
+		return true
+	}
+
+	return false
 }
 
 func isGroupChat(chat *tele.Chat) bool {
