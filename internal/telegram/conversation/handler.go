@@ -269,8 +269,7 @@ func telegramFilePath(ctx context.Context, botAPI *tele.Bot, fileID string) (str
 		return "", errors.New("photo file id is empty")
 	}
 
-	var payload map[string]string
-	payload = make(map[string]string, 1)
+	payload := make(map[string]string, 1)
 	payload["file_id"] = fileID
 
 	payloadBytes, err := json.Marshal(payload)
