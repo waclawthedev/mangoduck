@@ -1097,3 +1097,32 @@ func TestClearContext_ReturnsClearError(t *testing.T) {
 	err := handler(ctx)
 	require.EqualError(t, err, "clearing chat context: boom")
 }
+
+func TestBuildCurrentMessageContext_DetectsForwardedMessageByHiddenSenderName(t *testing.T) {
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "forwarder"
+
+	var currentMessage tele.Message
+	currentMessage.OriginalSenderName = "Hidden Sender"
+
+	result := buildCurrentMessageContext(&sender, &currentMessage, "Look at this")
+	require.Equal(t, "Forwarded message from Hidden Sender. Shared by @forwarder. Look at this", result)
+}
+
+func TestResolveReplyAuthorName_PrefersForwardOriginOverForwarder(t *testing.T) {
+	var forwarder tele.User
+	forwarder.ID = 42
+	forwarder.Username = "forwarder"
+
+	var originSender tele.User
+	originSender.ID = 99
+	originSender.Username = "origin"
+
+	var message tele.Message
+	message.Sender = &forwarder
+	message.Origin = &tele.MessageOrigin{Sender: &originSender}
+
+	result := resolveReplyAuthorName(&message)
+	require.Equal(t, "@origin", result)
+}

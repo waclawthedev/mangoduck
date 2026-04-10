@@ -232,7 +232,7 @@ func buildCurrentMessageContext(sender *tele.User, currentMessage *tele.Message,
 	message = strings.TrimSpace(message)
 	senderName := resolveSenderName(sender)
 
-	if currentMessage != nil && currentMessage.IsForwarded() {
+	if isForwardedMessage(currentMessage) {
 		forwardOrigin := describeForwardOrigin(currentMessage)
 		switch {
 		case forwardOrigin != "" && senderName != "" && message != "":
@@ -361,7 +361,7 @@ func resolveReplyAuthorName(message *tele.Message) string {
 		return ""
 	}
 
-	if message.IsForwarded() {
+	if isForwardedMessage(message) {
 		origin := describeForwardOrigin(message)
 		if origin != "" {
 			return origin
@@ -405,6 +405,22 @@ func resolveExternalReplyAuthorName(reply *tele.ExternalReply) string {
 	return ""
 }
 
+func isForwardedMessage(message *tele.Message) bool {
+	if message == nil {
+		return false
+	}
+
+	if message.IsForwarded() {
+		return true
+	}
+
+	if strings.TrimSpace(message.OriginalSenderName) != "" {
+		return true
+	}
+
+	return message.Origin != nil
+}
+
 func describeForwardOrigin(message *tele.Message) string {
 	if message == nil {
 		return ""
@@ -431,6 +447,45 @@ func describeForwardOrigin(message *tele.Message) string {
 	originalSenderName := strings.TrimSpace(message.OriginalSenderName)
 	if originalSenderName != "" {
 		return originalSenderName
+	}
+
+	return describeMessageOrigin(message.Origin)
+}
+
+func describeMessageOrigin(origin *tele.MessageOrigin) string {
+	if origin == nil {
+		return ""
+	}
+
+	if origin.Sender != nil {
+		return resolveSenderName(origin.Sender)
+	}
+
+	senderUsername := strings.TrimSpace(origin.SenderUsername)
+	if senderUsername != "" {
+		return senderUsername
+	}
+
+	if origin.SenderChat != nil {
+		return resolveChatName(origin.SenderChat)
+	}
+
+	if origin.Chat != nil {
+		chatName := resolveChatName(origin.Chat)
+		if chatName == "" {
+			return ""
+		}
+
+		if origin.MessageID != 0 || origin.Type == "channel" {
+			return "channel " + chatName
+		}
+
+		return "chat " + chatName
+	}
+
+	signature := strings.TrimSpace(origin.Signature)
+	if signature != "" {
+		return signature
 	}
 
 	return ""
