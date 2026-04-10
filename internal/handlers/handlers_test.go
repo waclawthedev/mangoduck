@@ -186,7 +186,7 @@ func TestChat_SendsModelReplyForActiveChat(t *testing.T) {
 		replyFunc: func(ctx context.Context, request *chat.Request) (*chat.Result, error) {
 			assert.Equal(t, int64(7), request.ChatID)
 			assert.Equal(t, int64(42), request.UserTGID)
-			assert.Equal(t, "Hello bot", request.Message)
+			assert.Equal(t, "@boss here. Hello bot", request.Message)
 			assert.True(t, request.IsAdmin)
 			deadline, ok := ctx.Deadline()
 			assert.True(t, ok)
