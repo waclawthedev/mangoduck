@@ -168,6 +168,7 @@ func TestChat_SendsModelReplyForActiveChat(t *testing.T) {
 	currentChat.Type = "private"
 	ctx.On("Chat").Return(&currentChat)
 	ctx.On("Text").Return("Hello bot")
+	ctx.On("Message").Return(&tele.Message{Text: "Hello bot"})
 	ctx.On("Notify", tele.Typing).Return(nil)
 	ctx.On("Send", "Hello human", []any{tele.ModeHTML}).Return(nil)
 

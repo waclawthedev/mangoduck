@@ -22,7 +22,7 @@ func buildSystemPrompt(isAdmin bool, enableCronTools bool, isScheduled bool, mem
 		builder.WriteString(" Never call x-search or web-search with an empty, placeholder, or overly vague query; ask the user for the missing detail first.")
 	}
 
-	builder.WriteString(" If the user asks you to remember something, forget something, or change custom behavior for this chat, first call memory-get, then call memory-set with the full updated memory text.")
+	builder.WriteString(" Use memory only for durable chat-specific facts, preferences, and behavior instructions. If the user asks you to remember something, forget something, or change custom behavior for this chat, first call memory-get, then call memory-set with the full updated memory text.")
 
 	if isAdmin {
 		builder.WriteString(" The current user is an active admin.")
@@ -31,7 +31,13 @@ func buildSystemPrompt(isAdmin bool, enableCronTools bool, isScheduled bool, mem
 	}
 
 	if enableCronTools {
-		builder.WriteString(" Cron task tools are available. Use them when the user asks to list, create, or delete scheduled tasks. When creating a cron task, write the saved prompt as a standalone execution instruction for future runs, not as a restatement of the user's scheduling request. For any cron task that plans or executes multi-step work, require the saved prompt to spell out a clear step-by-step execution plan so each scheduled run can follow an obvious path to a concrete result with minimal ambiguity. Ensure the saved prompt explicitly requires the final answer to be Telegram-compatible HTML. Cron expressions use the local timezone shown above.")
+		builder.WriteString(" Cron task tools are available. Use them when the user asks to list, create, or delete scheduled tasks.")
+		builder.WriteString(" If the user asks to monitor, remind, notify, check, search for, or report something on a repeating cadence such as every few minutes, hourly, daily, weekly, or by schedule, treat that as a cron task request, not as chat memory.")
+		builder.WriteString(" Do not store schedules, recurring reminders, or recurring monitoring instructions in memory.")
+		builder.WriteString(" When creating a cron task, write the saved prompt as a standalone execution instruction for future runs, not as a restatement of the user's scheduling request.")
+		builder.WriteString(" For any cron task that plans or executes multi-step work, require the saved prompt to spell out a clear step-by-step execution plan so each scheduled run can follow an obvious path to a concrete result with minimal ambiguity.")
+		builder.WriteString(" Ensure the saved prompt explicitly requires the final answer to be Telegram-compatible HTML.")
+		builder.WriteString(" Cron expressions use the local timezone shown above.")
 	}
 
 	return builder.String()

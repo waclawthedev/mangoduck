@@ -1,10 +1,15 @@
 package conversation
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -34,10 +39,12 @@ var (
 		_, err := c.Bot().Edit(msg, text, tele.ModeHTML)
 		return err
 	}
+	requestImageBuilder = buildRequestImage
 )
 
 func sendReply(c tele.Context, text string) error {
-	err := c.Send(text, tele.ModeHTML)
+	normalizedText := tghtml.Normalize(text)
+	err := c.Send(normalizedText, tele.ModeHTML)
 	if err == nil {
 		return nil
 	}
@@ -46,8 +53,8 @@ func sendReply(c tele.Context, text string) error {
 		return err
 	}
 
-	sanitizedText := tghtml.Sanitize(text)
-	if sanitizedText != "" && sanitizedText != text {
+	sanitizedText := tghtml.Sanitize(normalizedText)
+	if sanitizedText != "" && sanitizedText != normalizedText {
 		err = c.Send(sanitizedText, tele.ModeHTML)
 		if err == nil {
 			return nil
@@ -58,8 +65,8 @@ func sendReply(c tele.Context, text string) error {
 		}
 	}
 
-	escapedText := html.EscapeString(text)
-	if escapedText == text {
+	escapedText := html.EscapeString(normalizedText)
+	if escapedText == normalizedText {
 		return err
 	}
 
@@ -67,7 +74,8 @@ func sendReply(c tele.Context, text string) error {
 }
 
 func editPlaceholderReply(c tele.Context, msg tele.Editable, text string) error {
-	err := placeholderEditor(c, msg, text)
+	normalizedText := tghtml.Normalize(text)
+	err := placeholderEditor(c, msg, normalizedText)
 	if err == nil {
 		return nil
 	}
@@ -76,8 +84,8 @@ func editPlaceholderReply(c tele.Context, msg tele.Editable, text string) error 
 		return err
 	}
 
-	sanitizedText := tghtml.Sanitize(text)
-	if sanitizedText != "" && sanitizedText != text {
+	sanitizedText := tghtml.Sanitize(normalizedText)
+	if sanitizedText != "" && sanitizedText != normalizedText {
 		err = placeholderEditor(c, msg, sanitizedText)
 		if err == nil {
 			return nil
@@ -88,8 +96,8 @@ func editPlaceholderReply(c tele.Context, msg tele.Editable, text string) error 
 		}
 	}
 
-	escapedText := html.EscapeString(text)
-	if escapedText == text {
+	escapedText := html.EscapeString(normalizedText)
+	if escapedText == normalizedText {
 		return err
 	}
 
@@ -104,12 +112,13 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 		}
 
 		message := strings.TrimSpace(c.Text())
-		if message == "" {
+		photo := currentPhoto(c)
+		if message == "" && photo == nil {
 			return nil
 		}
 
 		message, shouldRespond := normalizeIncomingMessage(c, message)
-		if !shouldRespond || message == "" {
+		if !shouldRespond || (message == "" && photo == nil) {
 			return nil
 		}
 
@@ -130,11 +139,22 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 		stopTyping := startTyping(c)
 		defer stopTyping()
 
+		replyCtx, cancel := context.WithTimeout(context.Background(), resolveChatRequestTimeout(cfg))
+		defer cancel()
+
 		var placeholderMessage *tele.Message
 		var request llmchat.Request
 		request.ChatID = c.Chat().ID
 		request.UserTGID = sender.ID
 		request.Message = message
+		request.Image, err = requestImageBuilder(replyCtx, c, photo)
+		if err != nil {
+			if strings.TrimSpace(request.Message) == "" {
+				return fmt.Errorf("reading telegram photo: %w", err)
+			}
+
+			request.Image = nil
+		}
 		request.IsAdmin = cfg.IsAdminTGID(sender.ID)
 		request.NotifyToolCall = func(statusText string) error {
 			statusText = strings.TrimSpace(statusText)
@@ -159,9 +179,6 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 			placeholderMessage = sentMessage
 			return nil
 		}
-
-		replyCtx, cancel := context.WithTimeout(context.Background(), resolveChatRequestTimeout(cfg))
-		defer cancel()
 
 		reply, err := responder.Reply(replyCtx, &request)
 		if err != nil {
@@ -192,6 +209,139 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 
 		return sendReply(c, reply.Text)
 	}
+}
+
+func currentPhoto(c tele.Context) *tele.Photo {
+	message := c.Message()
+	if message == nil {
+		return nil
+	}
+
+	return message.Photo
+}
+
+func buildRequestImage(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
+	if photo == nil {
+		return nil, nil
+	}
+
+	botAPI := c.Bot()
+	if botAPI == nil {
+		return nil, errors.New("bot is nil")
+	}
+
+	bot, ok := botAPI.(*tele.Bot)
+	if !ok {
+		return nil, errors.New("bot is not a telebot bot")
+	}
+
+	file := photo.MediaFile()
+	if file == nil {
+		return nil, errors.New("photo file is nil")
+	}
+
+	filePath, err := telegramFilePath(ctx, bot, file.FileID)
+	if err != nil {
+		return nil, err
+	}
+
+	fileBytes, err := telegramFileBytes(ctx, bot, filePath)
+	if err != nil {
+		return nil, err
+	}
+	if len(fileBytes) == 0 {
+		return nil, errors.New("photo file is empty")
+	}
+
+	var image llmchat.InputImage
+	image.MIMEType = http.DetectContentType(fileBytes)
+	image.DataBase64 = base64.StdEncoding.EncodeToString(fileBytes)
+
+	if !strings.HasPrefix(image.MIMEType, "image/") {
+		image.MIMEType = "image/jpeg"
+	}
+
+	return &image, nil
+}
+
+func telegramFilePath(ctx context.Context, botAPI *tele.Bot, fileID string) (string, error) {
+	if strings.TrimSpace(fileID) == "" {
+		return "", errors.New("photo file id is empty")
+	}
+
+	payload := make(map[string]string, 1)
+	payload["file_id"] = fileID
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, botAPI.URL+"/bot"+botAPI.Token+"/getFile", bytes.NewReader(payloadBytes))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("telegram getFile returned status %s", resp.Status)
+	}
+
+	var telegramResp struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+		Result      struct {
+			FilePath string `json:"file_path"`
+		} `json:"result"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&telegramResp)
+	if err != nil {
+		return "", err
+	}
+
+	if !telegramResp.OK {
+		if strings.TrimSpace(telegramResp.Description) != "" {
+			return "", errors.New(telegramResp.Description)
+		}
+
+		return "", errors.New("telegram getFile request failed")
+	}
+
+	if strings.TrimSpace(telegramResp.Result.FilePath) == "" {
+		return "", errors.New("telegram file path is empty")
+	}
+
+	return telegramResp.Result.FilePath, nil
+}
+
+func telegramFileBytes(ctx context.Context, botAPI *tele.Bot, filePath string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, botAPI.URL+"/file/bot"+botAPI.Token+"/"+filePath, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("telegram file download returned status %s", resp.Status)
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
 func normalizeIncomingMessage(c tele.Context, message string) (string, bool) {

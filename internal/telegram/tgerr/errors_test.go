@@ -40,6 +40,18 @@ func TestNormalize_EntityParse(t *testing.T) {
 	require.Equal(t, 400, normalized.Code)
 }
 
+func TestNormalize_EntityParseFromGenericErrorString(t *testing.T) {
+	t.Parallel()
+
+	err := Normalize(errors.New("telegram: Bad Request: can't parse entities: unsupported start tag (400)"))
+
+	require.ErrorIs(t, err, ErrEntityParse)
+
+	var normalized *Error
+	require.ErrorAs(t, err, &normalized)
+	require.Equal(t, 400, normalized.Code)
+}
+
 func TestNormalize_Forbidden(t *testing.T) {
 	t.Parallel()
 

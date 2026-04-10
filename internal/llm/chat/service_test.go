@@ -385,6 +385,68 @@ func TestReplyRequiresMessage(t *testing.T) {
 	require.ErrorIs(t, err, chat.ErrMissingMessage)
 }
 
+func TestReplyAllowsImageOnlyInput(t *testing.T) {
+	var client stubClient
+	client.replies = []*responses.Response{
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"I can see the image"}]}`),
+	}
+
+	var xSearcher stubXSearchExecutor
+	var webSearcher stubWebSearchExecutor
+	var historyStore stubHistoryStore
+	var cronTaskStore stubCronTaskStore
+	var cronTaskManager stubCronTaskManager
+
+	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	require.NoError(t, err)
+
+	reply, err := service.Reply(context.Background(), &chat.Request{
+		ChatID: 7,
+		Image: &chat.InputImage{
+			MIMEType:   "image/png",
+			DataBase64: "aGVsbG8=",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "I can see the image", reply.Text)
+
+	inputItems, ok := client.requests[0].Input.([]json.RawMessage)
+	require.True(t, ok)
+	require.JSONEq(t, `{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}`, string(inputItems[1]))
+	require.JSONEq(t, `{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}`, string(historyStore.appendCalls[0][0]))
+}
+
+func TestReplyBuildsCaptionAndImageUserItem(t *testing.T) {
+	var client stubClient
+	client.replies = []*responses.Response{
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Done"}]}`),
+	}
+
+	var xSearcher stubXSearchExecutor
+	var webSearcher stubWebSearchExecutor
+	var historyStore stubHistoryStore
+	var cronTaskStore stubCronTaskStore
+	var cronTaskManager stubCronTaskManager
+
+	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	require.NoError(t, err)
+
+	reply, err := service.Reply(context.Background(), &chat.Request{
+		ChatID:  7,
+		Message: "look at this",
+		Image: &chat.InputImage{
+			MIMEType:   "image/jpeg",
+			DataBase64: "YmFzZTY0",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Done", reply.Text)
+
+	inputItems, ok := client.requests[0].Input.([]json.RawMessage)
+	require.True(t, ok)
+	require.JSONEq(t, `{"type":"message","role":"user","content":[{"type":"input_text","text":"look at this"},{"type":"input_image","image_url":"data:image/jpeg;base64,YmFzZTY0"}]}`, string(inputItems[1]))
+}
+
 func TestReplyIncludesAndExecutesRuntimeTools(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
@@ -523,6 +585,39 @@ func TestReplyUsesPersistedHistoryAndStoresFunctionLoopItems(t *testing.T) {
 	require.Len(t, historyStore.appendCalls, 4)
 	require.JSONEq(t, `{"type":"function_call","call_id":"call_1","name":"x-search","arguments":"{\"query\":\"latest xAI announcements\",\"allowed_x_handles\":[\"xai\"]}"}`, string(historyStore.appendCalls[1][0]))
 	require.JSONEq(t, `{"type":"function_call_output","call_id":"call_1","output":"Search result"}`, string(historyStore.appendCalls[2][0]))
+}
+
+func TestReplyReplaysPersistedImageHistory(t *testing.T) {
+	var client stubClient
+	client.replies = []*responses.Response{
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Final answer"}]}`),
+	}
+
+	var xSearcher stubXSearchExecutor
+	var webSearcher stubWebSearchExecutor
+	var historyStore stubHistoryStore
+	historyStore.listItems = []json.RawMessage{
+		json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"Earlier question"},{"type":"input_image","image_url":"data:image/png;base64,b2xk"}]}`),
+		json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Earlier answer"}]}`),
+	}
+	var cronTaskStore stubCronTaskStore
+	var cronTaskManager stubCronTaskManager
+
+	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	require.NoError(t, err)
+
+	reply, err := service.Reply(context.Background(), &chat.Request{
+		ChatID:  77,
+		Message: "hello",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Final answer", reply.Text)
+
+	firstInput, ok := client.requests[0].Input.([]json.RawMessage)
+	require.True(t, ok)
+	require.Len(t, firstInput, 4)
+	require.JSONEq(t, `{"type":"message","role":"user","content":[{"type":"input_text","text":"Earlier question"},{"type":"input_image","image_url":"data:image/png;base64,b2xk"}]}`, string(firstInput[1]))
+	require.JSONEq(t, `{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}`, string(firstInput[3]))
 }
 
 func TestReplyNotifiesEveryToolStepWithSpecificStatus(t *testing.T) {
@@ -720,7 +815,7 @@ func TestReplyDoesNotFailOnEmptyWebSearchQuery(t *testing.T) {
 	require.Contains(t, string(historyStore.appendCalls[2][0]), "Search tool input rejected: the query is empty.")
 }
 
-func TestReplyAddsCronTaskForAdmin(t *testing.T) {
+func TestReplyAddsCronTaskForAnyUser(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"add-cron-task","arguments":"{\"schedule\":\"0 9 * * *\",\"prompt\":\"send daily update\"}"}`),
@@ -748,7 +843,6 @@ func TestReplyAddsCronTaskForAdmin(t *testing.T) {
 		ChatID:   99,
 		UserTGID: 7,
 		Message:  "Create daily schedule",
-		IsAdmin:  true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Scheduled", reply.Text)
@@ -760,7 +854,7 @@ func TestReplyAddsCronTaskForAdmin(t *testing.T) {
 	require.Contains(t, string(historyStore.appendCalls[2][0]), "Cron task created.")
 }
 
-func TestReplyListsCronTasksForAdmin(t *testing.T) {
+func TestReplyListsCronTasksForAnyUser(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"list-cron-tasks","arguments":"{}"}`),
@@ -794,7 +888,6 @@ func TestReplyListsCronTasksForAdmin(t *testing.T) {
 		ChatID:   99,
 		UserTGID: 7,
 		Message:  "List schedules",
-		IsAdmin:  true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Listed", reply.Text)
@@ -804,7 +897,7 @@ func TestReplyListsCronTasksForAdmin(t *testing.T) {
 	require.Contains(t, string(historyStore.appendCalls[2][0]), "Task ID: 12")
 }
 
-func TestReplyReturnsEmptyCronTaskListForAdmin(t *testing.T) {
+func TestReplyReturnsEmptyCronTaskListForAnyUser(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"list-cron-tasks","arguments":"{}"}`),
@@ -824,7 +917,6 @@ func TestReplyReturnsEmptyCronTaskListForAdmin(t *testing.T) {
 		ChatID:   99,
 		UserTGID: 7,
 		Message:  "List schedules",
-		IsAdmin:  true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Empty", reply.Text)
@@ -832,17 +924,25 @@ func TestReplyReturnsEmptyCronTaskListForAdmin(t *testing.T) {
 	require.Contains(t, string(historyStore.appendCalls[2][0]), "No cron tasks found for this chat.")
 }
 
-func TestReplyRejectsListingCronTasksForNonAdmin(t *testing.T) {
+func TestReplyListsCronTasksForNonAdmin(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"list-cron-tasks","arguments":"{}"}`),
-		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Denied"}]}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Listed"}]}`),
 	}
 
 	var xSearcher stubXSearchExecutor
 	var webSearcher stubWebSearchExecutor
 	var historyStore stubHistoryStore
 	var cronTaskStore stubCronTaskStore
+	cronTaskStore.listResult = []*repo.CronTask{
+		{
+			ID:       21,
+			ChatID:   99,
+			Schedule: "*/15 * * * *",
+			Prompt:   "check the web for event updates",
+		},
+	}
 	var cronTaskManager stubCronTaskManager
 
 	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
@@ -853,22 +953,30 @@ func TestReplyRejectsListingCronTasksForNonAdmin(t *testing.T) {
 		Message: "List schedules",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Denied", reply.Text)
-	require.Empty(t, cronTaskStore.listCalls)
-	require.Contains(t, string(historyStore.appendCalls[2][0]), "Only active admins")
+	require.Equal(t, "Listed", reply.Text)
+	require.Equal(t, []int64{99}, cronTaskStore.listCalls)
+	require.Contains(t, string(historyStore.appendCalls[2][0]), "Task ID: 21")
 }
 
-func TestReplyRejectsCronTaskManagementForNonAdmin(t *testing.T) {
+func TestReplyAddsCronTaskForNonAdmin(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"add-cron-task","arguments":"{\"schedule\":\"0 9 * * *\",\"prompt\":\"send daily update\"}"}`),
-		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Denied"}]}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Scheduled"}]}`),
 	}
 
 	var xSearcher stubXSearchExecutor
 	var webSearcher stubWebSearchExecutor
 	var historyStore stubHistoryStore
 	var cronTaskStore stubCronTaskStore
+	cronTaskStore.createResult = &repo.CronTask{
+		ID:            42,
+		ChatID:        99,
+		CreatedByTGID: 0,
+		Schedule:      "0 9 * * *",
+		Prompt:        "send daily update",
+		CreatedAt:     time.Unix(0, 0),
+	}
 	var cronTaskManager stubCronTaskManager
 
 	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
@@ -879,10 +987,10 @@ func TestReplyRejectsCronTaskManagementForNonAdmin(t *testing.T) {
 		Message: "Create daily schedule",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Denied", reply.Text)
-	require.Empty(t, cronTaskStore.createCalls)
-	require.Empty(t, cronTaskManager.addCalls)
-	require.Contains(t, string(historyStore.appendCalls[2][0]), "Only active admins")
+	require.Equal(t, "Scheduled", reply.Text)
+	require.Len(t, cronTaskStore.createCalls, 1)
+	require.Len(t, cronTaskManager.addCalls, 1)
+	require.Contains(t, string(historyStore.appendCalls[2][0]), "Cron task created.")
 }
 
 func TestReplyRejectsDeletingCronTaskFromAnotherChat(t *testing.T) {
@@ -911,7 +1019,6 @@ func TestReplyRejectsDeletingCronTaskFromAnotherChat(t *testing.T) {
 		ChatID:   99,
 		UserTGID: 7,
 		Message:  "Delete schedule",
-		IsAdmin:  true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Denied", reply.Text)
@@ -993,7 +1100,56 @@ func TestReplySystemPromptGuidesCronPromptAuthoring(t *testing.T) {
 	require.Contains(t, string(inputItems[0]), "For normal chat, if the latest user request is ambiguous, underspecified, or missing a critical detail, ask one short clarifying question")
 	require.Contains(t, string(inputItems[0]), "Never call x-search or web-search with an empty, placeholder, or overly vague query")
 	require.Contains(t, string(inputItems[0]), "Ensure the saved prompt explicitly requires the final answer to be Telegram-compatible HTML")
+	require.Contains(t, string(inputItems[0]), "If the user asks to monitor, remind, notify, check, search for, or report something on a repeating cadence")
+	require.Contains(t, string(inputItems[0]), "treat that as a cron task request, not as chat memory")
+	require.Contains(t, string(inputItems[0]), "Do not store schedules, recurring reminders, or recurring monitoring instructions in memory")
 	require.Contains(t, string(inputItems[0]), "first call memory-get, then call memory-set with the full updated memory text")
+}
+
+func TestReplyPromptForRecurringRequestMakesCronToolsTheRightAction(t *testing.T) {
+	var client stubClient
+	client.replies = []*responses.Response{
+		buildResponse(`{"type":"function_call","call_id":"call_1","name":"add-cron-task","arguments":"{\"schedule\":\"*/15 * * * *\",\"prompt\":\"Every run, check the web for the requested event and send only new relevant updates as Telegram-compatible HTML.\"}"}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Scheduled"}]}`),
+	}
+
+	var xSearcher stubXSearchExecutor
+	var webSearcher stubWebSearchExecutor
+	var historyStore stubHistoryStore
+	var cronTaskStore stubCronTaskStore
+	cronTaskStore.createResult = &repo.CronTask{
+		ID:            77,
+		ChatID:        99,
+		CreatedByTGID: 7,
+		Schedule:      "*/15 * * * *",
+		Prompt:        "Every run, check the web for the requested event and send only new relevant updates as Telegram-compatible HTML.",
+		CreatedAt:     time.Unix(0, 0),
+	}
+	var cronTaskManager stubCronTaskManager
+	var memoryStore stubMemoryStore
+
+	service, err := chat.NewService(
+		&client,
+		&xSearcher,
+		&webSearcher,
+		&historyStore,
+		&cronTaskStore,
+		&cronTaskManager,
+		"gpt-5",
+		chat.WithMemoryStore(&memoryStore),
+	)
+	require.NoError(t, err)
+
+	reply, err := service.Reply(context.Background(), &chat.Request{
+		ChatID:   99,
+		UserTGID: 7,
+		Message:  "Кожні 15 хвилин повідомляй про певну подію в інтернеті",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Scheduled", reply.Text)
+	require.Len(t, cronTaskStore.createCalls, 1)
+	require.Empty(t, memoryStore.setCalls)
+	require.Contains(t, string(historyStore.appendCalls[2][0]), "Cron task created.")
 }
 
 func TestReplyReturnsClientError(t *testing.T) {

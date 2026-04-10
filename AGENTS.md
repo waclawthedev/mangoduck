@@ -24,7 +24,7 @@
 - Always run the relevant tests after making changes
 - README.md must always be kept up to date when user flows, roles, statuses, commands, or admin actions change
 - README.md always follows the real code behavior, not the other way around
-- Access control is managed only per Telegram `chat_id`; admins are defined only in YAML under `admin.tg_ids`
+- Access control is managed only per Telegram `chat_id`; admins are defined only in YAML under `admin.tg_ids` and are used for chat-management flows, not for cron task permissions
 - LLM chat context is stateless on the OpenAI side: do not use `store:true` or `previous_response_id` for main chat flow
-- Persist and replay only normalized text/tool Responses API items locally by Telegram `chat_id`: user text, assistant text, `function_call`, and `function_call_output`
+- Persist and replay normalized Responses API items locally by Telegram `chat_id`: user message items with `input_text` and optional `input_image`, assistant text, `function_call`, and `function_call_output`
 - Persist cron tasks in the database and execute scheduled prompts in the same agentic mode but without replaying chat history

@@ -178,7 +178,7 @@ func buildListCronTasksFunctionTool() *responses.Tool {
 	var tool responses.Tool
 	tool.Type = "function"
 	tool.Name = listCronTasksToolName
-	tool.Description = "List persisted cron tasks for this chat. Admin-only."
+	tool.Description = "List persisted cron tasks for the current chat."
 	tool.Parameters = map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -194,7 +194,7 @@ func buildAddCronTaskFunctionTool() *responses.Tool {
 	var tool responses.Tool
 	tool.Type = "function"
 	tool.Name = addCronTaskFunctionToolName
-	tool.Description = "Create a persisted cron task for this chat. Admin-only. The task runs the provided prompt later in the same chat without using chat history, but still in agentic mode. Cron expressions use the local timezone."
+	tool.Description = "Create a persisted cron task for the current chat. Use this for recurring reminders, monitoring, checks, and reports. The task runs the provided prompt later in the same chat without using chat history, but still in agentic mode. Cron expressions use the local timezone."
 	tool.Parameters = map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -222,7 +222,7 @@ func buildDeleteCronTaskFunctionTool() *responses.Tool {
 	var tool responses.Tool
 	tool.Type = "function"
 	tool.Name = deleteCronTaskToolName
-	tool.Description = "Delete a persisted cron task by ID. Admin-only."
+	tool.Description = "Delete a persisted cron task by ID for the current chat."
 	tool.Parameters = map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
