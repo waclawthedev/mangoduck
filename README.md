@@ -17,7 +17,7 @@ Mangoduck is a Go Telegram bot built for a single user or small teams that colla
 
 Admin privileges are not stored in the database. They are derived directly from `config.yaml` under `admin.tg_ids`; every other user is treated as a regular user. Admin status is used for chat-management flows, while cron task tools are available to any active chat.
 
-The bot runs in an agentic loop on top of the Responses API, can call built-in tools such as web search and memory management, and can expose external MCP tools during a chat turn. It stores normalized conversation items locally in SQLite, including multimodal user inputs such as text plus Telegram photos, and replays them per `chat_id` on each request, while keeping the provider side stateless for the main chat flow.
+The bot runs in an agentic loop on top of the Responses API, can call built-in tools such as web search and memory management, and can expose external MCP tools during a chat turn. It stores normalized conversation items locally in SQLite, including multimodal user inputs such as text plus Telegram photos, and replays them per `chat_id` on each request, while keeping the provider side stateless for the main chat flow. For live Telegram chat turns, the current sender identity is embedded into the user text item so the model can tell who is speaking in a private chat or group, and reply, quote, external-reply, sender-chat, or forwarded-message context is folded into that same text when present with explicit labels for channel posts and chat-origin messages.
 
 ## Features
 
@@ -39,7 +39,7 @@ The bot runs in an agentic loop on top of the Responses API, can call built-in t
 3. In groups and supergroups, the bot replies only if the message mentions the bot.
 4. If the chat is inactive, the bot asks for approval and shows the chat ID.
 5. When an admin activates a chat through `/chats`, the bot sends an approval message into that same Telegram chat.
-6. If the chat is active, the bot replays locally stored normalized Responses items for that `chat_id`, injects per-chat memory, and sends a fresh stateless request to the model.
+6. If the chat is active, the bot replays locally stored normalized Responses items for that `chat_id`, injects per-chat memory, prefixes the latest user text with the current sender identity, includes replied-to, quoted, external-reply, sender-chat, or forwarded-message context when present, and sends a fresh stateless request to the model.
 7. The model may answer directly or call exactly one tool in a step.
 8. Tool results are stored locally as normalized items and fed back into the next model step.
 9. The final assistant response is sent back to the same Telegram chat as Telegram-compatible HTML.
@@ -85,7 +85,7 @@ flowchart TD
     D -- "No" --> X["Ignore message"]
     D -- "Yes" --> E["Trim bot mention and normalize input"]
     E --> F["Ensure chat exists and is active"]
-    F --> G["Build llmchat.Request<br/>chat_id, user_tg_id, text/caption, optional image, is_admin"]
+    F --> G["Build llmchat.Request<br/>chat_id, user_tg_id, attributed text/caption,<br/>optional image, is_admin"]
     G --> H["chat.Service.Reply()"]
     H --> I["Load persisted normalized history by chat_id"]
     I --> J["Load per-chat memory"]
@@ -163,7 +163,7 @@ Mangoduck keeps the provider-side main chat flow stateless:
 
 - It does not use `store=true`.
 - It does not use `previous_response_id`.
-- It stores normalized user message items, including `input_text` and optional `input_image`, plus `assistant text`, `function_call`, and `function_call_output` items locally by Telegram `chat_id`.
+- It stores normalized user message items, including `input_text` with the live sender identity prefixed for normal chat turns plus inline reply, quote, external-reply, sender-chat, or forward context when available and optional `input_image`, plus `assistant text`, `function_call`, and `function_call_output` items locally by Telegram `chat_id`.
 - Scheduled cron runs execute without replaying chat history.
 
 ## Requirements

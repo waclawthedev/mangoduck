@@ -119,9 +119,9 @@ func TestChat_SendsPlaceholderAndEditsWhenToolUsed(t *testing.T) {
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
 			require.Equal(t, int64(7), request.ChatID)
 			require.Equal(t, int64(42), request.UserTGID)
-			require.Equal(t, "Hello bot", request.Message)
+			require.Equal(t, "@boss here. Hello bot", request.Message)
 			require.True(t, request.IsAdmin)
-			err := request.NotifyToolCall("Searching the web for: Hello bot")
+			err := request.NotifyToolCall("Searching the web for: @boss here. Hello bot")
 			require.NoError(t, err)
 			return &llmchat.Result{Text: "Final answer", UsedTool: true, PlaceholderNeeded: true}, nil
 		},
@@ -130,7 +130,7 @@ func TestChat_SendsPlaceholderAndEditsWhenToolUsed(t *testing.T) {
 	handler := Chat(cfg, repoStub, responder)
 	err := handler(ctx)
 	require.NoError(t, err)
-	require.Equal(t, "Searching the web for: Hello bot", sentText)
+	require.Equal(t, "Searching the web for: @boss here. Hello bot", sentText)
 	require.Equal(t, "Final answer", editedText)
 }
 
@@ -373,8 +373,391 @@ func TestChat_TrimsLeadingBotMentionInGroupMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "help me", request.Message)
+			require.Equal(t, "@boss here. help me", request.Message)
 			return &llmchat.Result{Text: "Hello human"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_IncludesReplyContextInRequestMessage(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("What did they mean?")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "What did they mean?",
+		ReplyTo: &tele.Message{
+			Text: "Ship it today",
+			Sender: &tele.User{
+				ID:        77,
+				FirstName: "Alice",
+				Username:  "alice",
+			},
+		},
+	})
+	ctx.On("Send", "I can help", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "In reply to Alice (@alice): Ship it today\n\n@boss here. What did they mean?", request.Message)
+			return &llmchat.Result{Text: "I can help"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_IncludesForwardContextInRequestMessage(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("Release is live")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "Release is live",
+		OriginalSender: &tele.User{
+			ID:        77,
+			FirstName: "Alice",
+			Username:  "alice",
+		},
+	})
+	ctx.On("Send", "Noted", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "Forwarded message from Alice (@alice). Shared by @boss. Release is live", request.Message)
+			return &llmchat.Result{Text: "Noted"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_IncludesForwardedChannelPostContextInRequestMessage(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("Breaking: rollout paused")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "Breaking: rollout paused",
+		OriginalChat: &tele.Chat{
+			ID:       -100777,
+			Type:     tele.ChatChannel,
+			Title:    "Deploy News",
+			Username: "deploynews",
+		},
+		OriginalMessageID: 91,
+	})
+	ctx.On("Send", "Captured", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "Forwarded message from channel Deploy News (@deploynews). Shared by @boss. Breaking: rollout paused", request.Message)
+			return &llmchat.Result{Text: "Captured"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_UsesForwardOriginWhenReplyingToForwardedMessage(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("Is this accurate?")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "Is this accurate?",
+		ReplyTo: &tele.Message{
+			Text: "The outage is resolved",
+			OriginalSender: &tele.User{
+				ID:        77,
+				FirstName: "Alice",
+				Username:  "alice",
+			},
+		},
+	})
+	ctx.On("Send", "Checking", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "In reply to Alice (@alice): The outage is resolved\n\n@boss here. Is this accurate?", request.Message)
+			return &llmchat.Result{Text: "Checking"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_IncludesSenderChatReplyContextInRequestMessage(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("Does this need action?")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "Does this need action?",
+		ReplyTo: &tele.Message{
+			Text: "Maintenance starts in 10 minutes",
+			SenderChat: &tele.Chat{
+				ID:       -100222,
+				Type:     tele.ChatChannel,
+				Title:    "Ops Alerts",
+				Username: "opsalerts",
+			},
+		},
+	})
+	ctx.On("Send", "Looking", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "group"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "In reply to channel post from Ops Alerts (@opsalerts): Maintenance starts in 10 minutes\n\n@boss here. Does this need action?", request.Message)
+			return &llmchat.Result{Text: "Looking"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_IncludesQuotedReplyContextInRequestMessage(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("Can you interpret this?")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "Can you interpret this?",
+		ReplyTo: &tele.Message{
+			Text: "Ship it today, but only after QA signs off.",
+			Sender: &tele.User{
+				ID:        77,
+				FirstName: "Alice",
+				Username:  "alice",
+			},
+		},
+		Quote: &tele.TextQuote{
+			Text: "only after QA signs off",
+		},
+	})
+	ctx.On("Send", "Sure", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "In reply to Alice (@alice): Ship it today, but only after QA signs off. Quoted part: only after QA signs off\n\n@boss here. Can you interpret this?", request.Message)
+			return &llmchat.Result{Text: "Sure"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
+func TestChat_IncludesExternalReplyContextInRequestMessage(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	var currentChat tele.Chat
+	currentChat.ID = 7
+	currentChat.Type = "private"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Text").Return("Can you summarize it?")
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "Can you summarize it?",
+		ExternalReply: &tele.ExternalReply{
+			Origin: &tele.MessageOrigin{
+				Sender: &tele.User{
+					ID:        77,
+					FirstName: "Alice",
+					Username:  "alice",
+				},
+			},
+			Document: &tele.Document{},
+		},
+		Quote: &tele.TextQuote{
+			Text: "budget-v3.pdf",
+		},
+	})
+	ctx.On("Send", "On it", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "private"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "In reply to Alice (@alice): [document] Quoted part: budget-v3.pdf\n\n@boss here. Can you summarize it?", request.Message)
+			return &llmchat.Result{Text: "On it"}, nil
 		},
 	}
 
@@ -426,7 +809,7 @@ func TestChat_BuildsPhotoCaptionRequest(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "look at this", request.Message)
+			require.Equal(t, "Telegram user 42 here. look at this", request.Message)
 			require.NotNil(t, request.Image)
 			require.Equal(t, "image/jpeg", request.Image.MIMEType)
 			require.Equal(t, "ZmFrZQ==", request.Image.DataBase64)
@@ -481,7 +864,7 @@ func TestChat_BuildsPhotoOnlyRequest(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Empty(t, request.Message)
+			require.Equal(t, "Telegram user 42 here.", request.Message)
 			require.NotNil(t, request.Image)
 			require.Equal(t, "image/png", request.Image.MIMEType)
 			return &llmchat.Result{Text: "Image received"}, nil
@@ -589,7 +972,7 @@ func TestChat_FallsBackToCaptionWhenPhotoBuildFails(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "look at this", request.Message)
+			require.Equal(t, "Telegram user 42 here. look at this", request.Message)
 			require.Nil(t, request.Image)
 			return &llmchat.Result{Text: "Caption handled"}, nil
 		},
