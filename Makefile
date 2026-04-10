@@ -30,7 +30,7 @@ build:
 	$(DOCKER_RUN) $(GO_IMAGE) go build ./...
 
 build-amd64:
-	$(DOCKER_RUN) -e GOOS=linux -e GOARCH=amd64 $(GO_IMAGE) sh -c "mkdir -p ./bin && go build -o ./bin/mangoduck ./cmd/mangoduck"
+	$(DOCKER_RUN) -e GOOS=linux -e GOARCH=amd64 $(GO_IMAGE) sh -c "mkdir -p ./bin && go build -o ./bin/bot ./cmd/mangoduck && chmod +x ./bin/bot"
 
 generate-mocks:
 	$(DOCKER_RUN) $(GO_IMAGE) sh -c "go install github.com/vektra/mockery/v3@v3.7.0 && go generate ./..."
