@@ -9,24 +9,36 @@ import (
 	"mangoduck/internal/llm/responses"
 )
 
-func buildUserMessageItem(message string) (json.RawMessage, error) {
-	return buildMessageItem("user", message)
-}
-
 func buildSystemMessageItem(message string) (json.RawMessage, error) {
-	return buildMessageItem("system", message)
+	return buildMessageItem("system", message, nil)
 }
 
-func buildMessageItem(role string, message string) (json.RawMessage, error) {
+func buildUserMessageItem(message string, image *InputImage) (json.RawMessage, error) {
+	return buildMessageItem("user", message, image)
+}
+
+func buildMessageItem(role string, message string, image *InputImage) (json.RawMessage, error) {
+	content := make([]map[string]any, 0, 2)
+
+	message = strings.TrimSpace(message)
+	if message != "" {
+		content = append(content, map[string]any{
+			"type": "input_text",
+			"text": message,
+		})
+	}
+
+	if hasInputImage(image) {
+		content = append(content, map[string]any{
+			"type":      "input_image",
+			"image_url": buildImageDataURL(image),
+		})
+	}
+
 	payload := map[string]any{
-		"type": "message",
-		"role": role,
-		"content": []map[string]any{
-			{
-				"type": "input_text",
-				"text": message,
-			},
-		},
+		"type":    "message",
+		"role":    role,
+		"content": content,
 	}
 
 	raw, err := json.Marshal(payload)
@@ -35,6 +47,14 @@ func buildMessageItem(role string, message string) (json.RawMessage, error) {
 	}
 
 	return raw, nil
+}
+
+func buildImageDataURL(image *InputImage) string {
+	if !hasInputImage(image) {
+		return ""
+	}
+
+	return "data:" + strings.TrimSpace(image.MIMEType) + ";base64," + strings.TrimSpace(image.DataBase64)
 }
 
 func buildFunctionCallOutputItem(callID string, output string) (json.RawMessage, error) {

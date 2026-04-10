@@ -248,11 +248,13 @@ func (a toolRuntimeFactoryAdapter) OpenSession(ctx context.Context) (chat.ToolRu
 func registerHandlers(b *tele.Bot, cfg config.Config, chatsRepo *repo.ChatsRepo, db *sql.DB, chatResponder conversation.Responder, approvalNotifier *ChatApprovalNotifier) {
 	toggleChatStatusButton := (&tele.ReplyMarkup{}).Data("", chats.ToggleChatStatusButtonUnique())
 	chatsPageButton := (&tele.ReplyMarkup{}).Data("", chats.ChatsPageButtonUnique())
+	chatHandler := conversation.Chat(cfg, chatsRepo, chatResponder)
 
 	b.Handle("/start", start.Start(cfg, chatsRepo))
 	b.Handle("/clear_context", conversation.ClearContext(cfg, chatsRepo, repo.NewInputsOutputsRepo(db)))
 	b.Handle("/chats", chats.Chats(cfg, chatsRepo))
 	b.Handle(&toggleChatStatusButton, chats.ToggleChatStatus(cfg, chatsRepo, approvalNotifier))
 	b.Handle(&chatsPageButton, chats.ChatsPage(cfg, chatsRepo))
-	b.Handle(tele.OnText, conversation.Chat(cfg, chatsRepo, chatResponder))
+	b.Handle(tele.OnText, chatHandler)
+	b.Handle(tele.OnPhoto, chatHandler)
 }

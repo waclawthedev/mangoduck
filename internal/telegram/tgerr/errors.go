@@ -55,6 +55,16 @@ func Normalize(err error) error {
 		return nil
 	}
 
+	message := strings.TrimSpace(err.Error())
+	if isEntityParseDescription(message) {
+		var normalized Error
+		normalized.Code = 400
+		normalized.Description = message
+		normalized.Err = ErrEntityParse
+
+		return &normalized
+	}
+
 	if errors.Is(err, tele.ErrMessageNotModified) || errors.Is(err, tele.ErrSameMessageContent) {
 		return fmt.Errorf("%w: %w", ErrMessageNotModified, err)
 	}

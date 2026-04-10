@@ -29,7 +29,7 @@ const (
 	listCronTasksToolName       = "list-cron-tasks"
 	addCronTaskFunctionToolName = "add-cron-task"
 	deleteCronTaskToolName      = "delete-cron-task"
-	telegramHTMLPrompt          = "You are replying for Telegram in agent mode. Return only Telegram-compatible HTML. Use only tags supported by Telegram HTML parse mode. Do not use unsupported block tags such as <p>, <div>, <span>, <ul>, <ol>, or <li>; use plain text line breaks instead. Escape plain text so it is valid HTML. Do not use Markdown. Work step by step: call at most one function in each assistant turn, then analyze the function result before deciding what to do next. If more information is needed, make another single function call on the next turn. Produce the final user-facing answer only when the collected tool results are sufficient."
+	telegramHTMLPrompt          = "You are replying for Telegram in agent mode. Return only Telegram-compatible HTML. Use only tags supported by Telegram HTML parse mode. Do not use unsupported block tags such as <p>, <div>, <span>, <ul>, <ol>, or <li>; use plain text line breaks instead. Escape plain text so it is valid HTML, but when you intentionally use Telegram formatting tags such as <b>, <i>, <u>, <s>, <code>, <pre>, <blockquote>, <a>, <tg-spoiler>, <tg-emoji>, or <tg-time>, emit them as real tags and do not escape them as text. Do not use Markdown. Work step by step: call at most one function in each assistant turn, then analyze the function result before deciding what to do next. If more information is needed, make another single function call on the next turn. Produce the final user-facing answer only when the collected tool results are sufficient."
 	searchQueryRequiredToolText = "Search tool input rejected: the query is empty. Do not call a search tool again yet. Ask the user one short clarifying question to collect the missing topic, entity, or keywords, then wait for their reply."
 	cronTaskHTMLInstruction     = "Return the final user-facing answer only as Telegram-compatible HTML. Use only tags supported by Telegram HTML parse mode. Do not use Markdown or unsupported block tags such as <p>, <div>, <span>, <ul>, <ol>, or <li>."
 )
@@ -88,10 +88,16 @@ type ToolRuntime interface {
 
 type Option func(*Service)
 
+type InputImage struct {
+	MIMEType   string
+	DataBase64 string
+}
+
 type Request struct {
 	ChatID         int64
 	UserTGID       int64
 	Message        string
+	Image          *InputImage
 	IsAdmin        bool
 	NotifyToolCall ToolCallNotifier
 }
@@ -106,6 +112,7 @@ type executionRequest struct {
 	ChatID          int64
 	UserTGID        int64
 	Message         string
+	Image           *InputImage
 	IsAdmin         bool
 	PersistHistory  bool
 	EnableCronTools bool
@@ -252,6 +259,7 @@ func (s *Service) Reply(ctx context.Context, request *Request) (*Result, error) 
 	execution.ChatID = request.ChatID
 	execution.UserTGID = request.UserTGID
 	execution.Message = request.Message
+	execution.Image = cloneInputImage(request.Image)
 	execution.IsAdmin = request.IsAdmin
 	execution.PersistHistory = true
 	execution.EnableCronTools = true
@@ -285,7 +293,7 @@ func (s *Service) run(ctx context.Context, request *executionRequest) (*Result, 
 	}
 
 	message := strings.TrimSpace(request.Message)
-	if message == "" {
+	if message == "" && !hasInputImage(request.Image) {
 		return nil, ErrMissingMessage
 	}
 
@@ -307,7 +315,7 @@ func (s *Service) run(ctx context.Context, request *executionRequest) (*Result, 
 		return nil, fmt.Errorf("getting chat memory: %w", err)
 	}
 
-	userItem, err := buildUserMessageItem(message)
+	userItem, err := buildUserMessageItem(message, request.Image)
 	if err != nil {
 		return nil, err
 	}
@@ -455,6 +463,26 @@ func (s *Service) run(ctx context.Context, request *executionRequest) (*Result, 
 	}, nil
 }
 
+func hasInputImage(image *InputImage) bool {
+	return image != nil && strings.TrimSpace(image.MIMEType) != "" && strings.TrimSpace(image.DataBase64) != ""
+}
+
+func cloneInputImage(image *InputImage) *InputImage {
+	if image == nil {
+		return nil
+	}
+
+	var cloned InputImage
+	cloned.MIMEType = strings.TrimSpace(image.MIMEType)
+	cloned.DataBase64 = strings.TrimSpace(image.DataBase64)
+
+	if cloned.MIMEType == "" || cloned.DataBase64 == "" {
+		return nil
+	}
+
+	return &cloned
+}
+
 func (s *Service) executeToolCall(ctx context.Context, call *responses.FunctionCall, request *executionRequest, runtime ToolRuntime) (string, error) {
 	if call == nil {
 		return "", errors.New("chat function call is nil")
@@ -549,10 +577,6 @@ func (s *Service) setMemory(ctx context.Context, request *executionRequest, argu
 }
 
 func (s *Service) addCronTask(ctx context.Context, request *executionRequest, arguments string) (string, error) {
-	if !request.IsAdmin {
-		return "You cannot manage cron tasks. Only active admins can do that.", nil
-	}
-
 	payload, parseErr := parseAddCronTaskArguments(arguments)
 	if parseErr != nil {
 		return "", parseErr
@@ -589,10 +613,6 @@ func (s *Service) addCronTask(ctx context.Context, request *executionRequest, ar
 }
 
 func (s *Service) listCronTasks(ctx context.Context, request *executionRequest) (string, error) {
-	if !request.IsAdmin {
-		return "You cannot manage cron tasks. Only active admins can do that.", nil
-	}
-
 	tasks, err := s.cronTaskStore.ListByChatID(ctx, request.ChatID)
 	if err != nil {
 		return "", fmt.Errorf("listing cron tasks: %w", err)
@@ -621,10 +641,6 @@ func (s *Service) listCronTasks(ctx context.Context, request *executionRequest) 
 }
 
 func (s *Service) deleteCronTask(ctx context.Context, request *executionRequest, arguments string) (string, error) {
-	if !request.IsAdmin {
-		return "You cannot manage cron tasks. Only active admins can do that.", nil
-	}
-
 	taskID, err := parseDeleteCronTaskArguments(arguments)
 	if err != nil {
 		return "", err

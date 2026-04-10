@@ -24,7 +24,8 @@ func (s *TelegramSender) Send(chatID int64, text string) error {
 	}
 
 	recipient := &tele.Chat{ID: chatID}
-	_, err := s.bot.Send(recipient, text, tele.ModeHTML)
+	normalizedText := tghtml.Normalize(text)
+	_, err := s.bot.Send(recipient, normalizedText, tele.ModeHTML)
 	if err == nil {
 		return nil
 	}
@@ -33,8 +34,8 @@ func (s *TelegramSender) Send(chatID int64, text string) error {
 		return err
 	}
 
-	sanitizedText := tghtml.Sanitize(text)
-	if sanitizedText != "" && sanitizedText != text {
+	sanitizedText := tghtml.Sanitize(normalizedText)
+	if sanitizedText != "" && sanitizedText != normalizedText {
 		_, err = s.bot.Send(recipient, sanitizedText, tele.ModeHTML)
 		if err == nil {
 			return nil
@@ -45,8 +46,8 @@ func (s *TelegramSender) Send(chatID int64, text string) error {
 		}
 	}
 
-	escapedText := html.EscapeString(text)
-	if escapedText == text {
+	escapedText := html.EscapeString(normalizedText)
+	if escapedText == normalizedText {
 		return err
 	}
 

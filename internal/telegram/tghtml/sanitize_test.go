@@ -50,3 +50,33 @@ func TestSanitize_DropsUnsupportedTagsButKeepsText(t *testing.T) {
 	expected := `helloworld<tg-emoji emoji-id="123"></tg-emoji>`
 	require.Equal(t, expected, Sanitize(input))
 }
+
+func TestNormalize_RestoresEscapedSupportedTags(t *testing.T) {
+	t.Parallel()
+
+	input := `Done. 1) &lt;b&gt;a.txt&lt;/b&gt;`
+	expected := `Done. 1) <b>a.txt</b>`
+	require.Equal(t, expected, Normalize(input))
+}
+
+func TestNormalize_LeavesUnsupportedEscapedTagsEscaped(t *testing.T) {
+	t.Parallel()
+
+	input := `&lt;table&gt;hello&lt;/table&gt;`
+	require.Equal(t, input, Normalize(input))
+}
+
+func TestNormalize_RestoresEscapedSupportedAttributesOnly(t *testing.T) {
+	t.Parallel()
+
+	input := `&lt;a href=&quot;https://example.com?a=1&amp;amp;b=2&quot; onclick=&quot;nope&quot;&gt;link&lt;/a&gt;`
+	expected := `<a href="https://example.com?a=1&amp;b=2">link</a>`
+	require.Equal(t, expected, Normalize(input))
+}
+
+func TestNormalize_LeavesExistingHTMLUntouched(t *testing.T) {
+	t.Parallel()
+
+	input := `<b>ready</b>`
+	require.Equal(t, input, Normalize(input))
+}

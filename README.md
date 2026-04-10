@@ -15,9 +15,9 @@
 
 Mangoduck is a Go Telegram bot built for a single user or small teams that collaborate in Telegram chats. It keeps access control simple: every conversation target is treated as a Telegram `chat`, and access is granted or denied only by `chat_id`.
 
-Admin privileges are not stored in the database. They are derived directly from `config.yaml` under `admin.tg_ids`; every other user is treated as a regular user.
+Admin privileges are not stored in the database. They are derived directly from `config.yaml` under `admin.tg_ids`; every other user is treated as a regular user. Admin status is used for chat-management flows, while cron task tools are available to any active chat.
 
-The bot runs in an agentic loop on top of the Responses API, can call built-in tools such as web search and memory management, and can expose external MCP tools during a chat turn. It stores normalized conversation items locally in SQLite and replays them per `chat_id` on each request, while keeping the provider side stateless for the main chat flow.
+The bot runs in an agentic loop on top of the Responses API, can call built-in tools such as web search and memory management, and can expose external MCP tools during a chat turn. It stores normalized conversation items locally in SQLite, including multimodal user inputs such as text plus Telegram photos, and replays them per `chat_id` on each request, while keeping the provider side stateless for the main chat flow.
 
 ## Features
 
@@ -85,7 +85,7 @@ flowchart TD
     D -- "No" --> X["Ignore message"]
     D -- "Yes" --> E["Trim bot mention and normalize input"]
     E --> F["Ensure chat exists and is active"]
-    F --> G["Build llmchat.Request<br/>chat_id, user_tg_id, text, is_admin"]
+    F --> G["Build llmchat.Request<br/>chat_id, user_tg_id, text/caption, optional image, is_admin"]
     G --> H["chat.Service.Reply()"]
     H --> I["Load persisted normalized history by chat_id"]
     I --> J["Load per-chat memory"]
@@ -163,7 +163,7 @@ Mangoduck keeps the provider-side main chat flow stateless:
 
 - It does not use `store=true`.
 - It does not use `previous_response_id`.
-- It stores only normalized `user text`, `assistant text`, `function_call`, and `function_call_output` items locally by Telegram `chat_id`.
+- It stores normalized user message items, including `input_text` and optional `input_image`, plus `assistant text`, `function_call`, and `function_call_output` items locally by Telegram `chat_id`.
 - Scheduled cron runs execute without replaying chat history.
 
 ## Requirements
@@ -231,7 +231,7 @@ The safe example config lives in [`config.yaml.dist`](config.yaml.dist).
 
 ### Admin
 
-- `admin.tg_ids`: list of Telegram user IDs allowed to manage chats and cron tasks
+- `admin.tg_ids`: list of Telegram user IDs allowed to manage chats
 
 ### Database
 
@@ -301,7 +301,7 @@ make go CMD="test ./internal/llm/chat -run TestName"
 
 ## Scheduled Tasks
 
-Admins can list, create, and delete cron-backed prompts through the agent tools. Scheduled tasks:
+Any active chat can list, create, and delete cron-backed prompts through the agent tools. Scheduled tasks:
 
 - are persisted in SQLite
 - are restored on startup
