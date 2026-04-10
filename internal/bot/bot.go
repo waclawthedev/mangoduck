@@ -172,6 +172,11 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 		return nil, err
 	}
 
+	err = commandSyncer.SyncGroups()
+	if err != nil {
+		return nil, err
+	}
+
 	err = commandSyncer.SyncAdmins(cfg.AdminTGIDs)
 	if err != nil {
 		return nil, err
