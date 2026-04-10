@@ -258,6 +258,56 @@ func TestChat_BlocksInactiveChat(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestChat_AllowsDirectReplyToBotWithoutMentionInGroup(t *testing.T) {
+	t.Parallel()
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	ctx.On("Text").Return("help me")
+	var bot tele.Bot
+	bot.Me = &tele.User{ID: 100, Username: "mangoduck", IsBot: true}
+	ctx.On("Bot").Return(&bot)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "help me",
+		ReplyTo: &tele.Message{
+			Text:   "Original bot answer",
+			Sender: &tele.User{ID: 100, Username: "mangoduck", IsBot: true},
+		},
+	})
+	var currentChat tele.Chat
+	currentChat.ID = -1001
+	currentChat.Type = "group"
+	currentChat.Title = "Mango Duck"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Send", "Hello human", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &chatsRepoStub{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "group"
+			chatRecord.Status = repo.ChatStatusActive
+			return &chatRecord, nil
+		},
+	}
+
+	responderStub := &chatResponderStub{
+		replyFunc: func(ctx context.Context, request *chat.Request) (*chat.Result, error) {
+			assert.Equal(t, "In reply to @mangoduck: Original bot answer\n\n@boss here. help me", request.Message)
+			return &chat.Result{Text: "Hello human"}, nil
+		},
+	}
+
+	handler := handlers.Chat(config.Config{}, repoStub, responderStub)
+	err := handler(ctx)
+
+	assert.NoError(t, err)
+}
+
 func TestChats_SendsListForConfiguredAdmin(t *testing.T) {
 	t.Parallel()
 

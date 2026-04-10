@@ -36,7 +36,7 @@ The bot runs in an agentic loop on top of the Responses API, can call built-in t
 
 1. A Telegram update arrives.
 2. The bot resolves the current Telegram `chat_id` and creates or refreshes a local chat record.
-3. In groups and supergroups, the bot replies only if the message mentions the bot.
+3. In groups and supergroups, the bot replies only if the message mentions the bot or directly replies to a bot message.
 4. If the chat is inactive, the bot asks for approval and shows the chat ID.
 5. When an admin activates a chat through `/chats`, the bot sends an approval message into that same Telegram chat.
 6. If the chat is active, the bot replays locally stored normalized Responses items for that `chat_id`, injects per-chat memory, prefixes the latest user text with the current sender identity, includes replied-to, quoted, external-reply, sender-chat, or forwarded-message context when present, and sends a fresh stateless request to the model.
@@ -81,9 +81,11 @@ flowchart TD
     A["Telegram user sends message"] --> B["telebot handler<br/>internal/telegram/conversation"]
     B --> C{"Private chat?"}
     C -- "Yes" --> E["Normalize input"]
-    C -- "No, group/supergroup" --> D{"Bot mentioned?"}
+    C -- "No, group/supergroup" --> D{"Bot mentioned or direct reply to bot?"}
     D -- "No" --> X["Ignore message"]
-    D -- "Yes" --> E["Trim bot mention and normalize input"]
+    D -- "Yes, mention" --> E["Trim bot mention and normalize input"]
+    D -- "Yes, direct reply" --> E2["Keep text and normalize input"]
+    E2 --> F
     E --> F["Ensure chat exists and is active"]
     F --> G["Build llmchat.Request<br/>chat_id, user_tg_id, attributed text/caption,<br/>optional image, is_admin"]
     G --> H["chat.Service.Reply()"]
@@ -296,7 +298,7 @@ make go CMD="test ./internal/llm/chat -run TestName"
 - Every Telegram conversation target is a `chat`.
 - New chats are created as inactive.
 - Access control is managed only per Telegram `chat_id`.
-- Group and supergroup messages are handled only when the bot is explicitly mentioned.
+- Group and supergroup messages are handled only when the bot is explicitly mentioned or the message is a direct reply to the bot.
 - Per-chat memory is stored as a single free-form text block and injected into the system prompt when non-empty.
 
 ## Scheduled Tasks

@@ -327,6 +327,60 @@ func TestChat_IgnoresGroupMessageWithoutBotMention(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestChat_AcceptsDirectReplyToBotWithoutMentionInGroup(t *testing.T) {
+	originalImageBuilder := requestImageBuilder
+	requestImageBuilder = buildRequestImage
+	t.Cleanup(func() {
+		requestImageBuilder = originalImageBuilder
+	})
+
+	ctx := handlermocks.NewMockContext(t)
+	var sender tele.User
+	sender.ID = 42
+	sender.Username = "boss"
+	ctx.On("Sender").Return(&sender)
+	ctx.On("Text").Return("help me with this")
+	var bot tele.Bot
+	bot.Me = &tele.User{ID: 100, Username: "mangoduck", IsBot: true}
+	ctx.On("Bot").Return(&bot)
+	ctx.On("Message").Return(&tele.Message{
+		Text: "help me with this",
+		ReplyTo: &tele.Message{
+			Text:   "Original bot answer",
+			Sender: &tele.User{ID: 100, Username: "mangoduck", IsBot: true},
+		},
+	})
+	var currentChat tele.Chat
+	currentChat.ID = -1001
+	currentChat.Type = "group"
+	currentChat.Title = "Mango Duck"
+	ctx.On("Chat").Return(&currentChat)
+	ctx.On("Notify", tele.Typing).Return(nil)
+	ctx.On("Send", "Sure", []any{tele.ModeHTML}).Return(nil)
+
+	repoStub := &testChatsRepo{
+		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
+			var chatRecord repo.Chat
+			chatRecord.TGID = tgID
+			chatRecord.Type = "group"
+			chatRecord.Status = repo.ChatStatusActive
+			chatRecord.CreatedAt = time.Now()
+			return &chatRecord, nil
+		},
+	}
+
+	responder := &testResponder{
+		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
+			require.Equal(t, "In reply to @mangoduck: Original bot answer\n\n@boss here. help me with this", request.Message)
+			return &llmchat.Result{Text: "Sure"}, nil
+		},
+	}
+
+	handler := Chat(config.Config{}, repoStub, responder)
+	err := handler(ctx)
+	require.NoError(t, err)
+}
+
 func TestChat_TrimsLeadingBotMentionInGroupMessage(t *testing.T) {
 	originalImageBuilder := requestImageBuilder
 	requestImageBuilder = buildRequestImage
