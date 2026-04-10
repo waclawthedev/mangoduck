@@ -416,6 +416,9 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.DatabasePath) == "" {
 		return errors.New("database path is empty")
 	}
+	if strings.Contains(c.DatabasePath, "?") || strings.Contains(c.DatabasePath, "#") || strings.HasPrefix(c.DatabasePath, "file:") {
+		return errors.New("database path must be a sqlite file path, not a URI")
+	}
 
 	if c.PollTimeout <= 0 {
 		return fmt.Errorf("poll timeout must be positive, got %s", c.PollTimeout)

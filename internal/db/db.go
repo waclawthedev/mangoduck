@@ -6,8 +6,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"net/url"
-	"path/filepath"
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -27,6 +25,10 @@ const (
 )
 
 func Open(dbPath string) (*sql.DB, error) {
+	if err := validateDBPath(dbPath); err != nil {
+		return nil, err
+	}
+
 	conn, err := sql.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
@@ -40,6 +42,11 @@ func Open(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 
+	if err := configureSQLite(conn); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("configuring database: %w", err)
+	}
+
 	if err := runMigrations(conn); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
@@ -48,29 +55,37 @@ func Open(dbPath string) (*sql.DB, error) {
 	return conn, nil
 }
 
+func validateDBPath(dbPath string) error {
+	dbPath = strings.TrimSpace(dbPath)
+	if dbPath == "" {
+		return errors.New("database path is empty")
+	}
+	if strings.Contains(dbPath, "?") || strings.Contains(dbPath, "#") || strings.HasPrefix(dbPath, "file:") {
+		return errors.New("database path must be a sqlite file path, not a URI")
+	}
+
+	return nil
+}
+
 func sqliteDSN(dbPath string) string {
-	var dsnURL url.URL
-	if dbPath == ":memory:" {
-		dsnURL.Scheme = "file"
-		dsnURL.Opaque = ":memory:"
-	} else if strings.HasPrefix(dbPath, "file:") {
-		parsed, err := url.Parse(dbPath)
-		if err == nil {
-			dsnURL = *parsed
-		}
+	return fmt.Sprintf("%s?_pragma=busy_timeout(%d)", dbPath, sqliteBusyTimeoutMillis)
+}
+
+func configureSQLite(conn *sql.DB) error {
+	// WAL improves concurrency for file-backed databases, but the bot still
+	// works correctly with SQLite's default journal mode.
+	_, _ = sqliteJournalMode(conn, "WAL")
+	return nil
+}
+
+func sqliteJournalMode(conn *sql.DB, mode string) (string, error) {
+	var journalMode string
+	err := conn.QueryRowContext(context.Background(), `PRAGMA journal_mode = `+mode).Scan(&journalMode)
+	if err != nil {
+		return "", err
 	}
 
-	if dsnURL.Scheme == "" {
-		dsnURL.Scheme = "file"
-		dsnURL.Path = filepath.ToSlash(dbPath)
-	}
-
-	query := dsnURL.Query()
-	query.Add("_pragma", "journal_mode(WAL)")
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMillis))
-	dsnURL.RawQuery = query.Encode()
-
-	return dsnURL.String()
+	return journalMode, nil
 }
 
 func runMigrations(conn *sql.DB) error {

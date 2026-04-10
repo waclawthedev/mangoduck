@@ -51,6 +51,7 @@ The bot runs in an agentic loop on top of the Responses API, can call built-in t
 
 - `/start` creates or refreshes the current chat record, checks whether the chat is approved, and replies with `Hi!` when access is active.
 - `/clear_context` removes the locally persisted chat context for the current chat.
+- On each bot startup, Mangoduck re-syncs the base command menu for private chats and group chats, so the Telegram commands button is restored even if commands were cleared in BotFather.
 
 ### Admin commands
 
@@ -234,7 +235,7 @@ The safe example config lives in [`config.yaml.dist`](config.yaml.dist).
 
 ### Database
 
-- `database.path`: SQLite file path, default `mangoduck.db`
+- `database.path`: file-backed SQLite path, default `mangoduck.db`
 
 ### Responses API
 

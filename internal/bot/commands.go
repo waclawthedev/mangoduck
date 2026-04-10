@@ -15,10 +15,15 @@ func NewCommandSyncer(bot *tele.Bot) *CommandSyncer {
 }
 
 func (s *CommandSyncer) SyncDefaults() error {
-	var scope tele.CommandScope
-	scope.Type = tele.CommandScopeAllPrivateChats
+	return s.bot.SetCommands(baseCommands(), scopeForAllPrivateChats())
+}
 
-	return s.bot.SetCommands(baseCommands(), scope)
+func (s *CommandSyncer) SyncGroups() error {
+	if s == nil || s.bot == nil {
+		return errors.New("bot is nil")
+	}
+
+	return s.bot.SetCommands(baseCommands(), scopeForAllGroupChats())
 }
 
 func (s *CommandSyncer) SyncAdmins(adminTGIDs []int64) error {
@@ -76,6 +81,20 @@ func scopeForChat(chatID int64) tele.CommandScope {
 	var scope tele.CommandScope
 	scope.Type = tele.CommandScopeChat
 	scope.ChatID = chatID
+
+	return scope
+}
+
+func scopeForAllPrivateChats() tele.CommandScope {
+	var scope tele.CommandScope
+	scope.Type = tele.CommandScopeAllPrivateChats
+
+	return scope
+}
+
+func scopeForAllGroupChats() tele.CommandScope {
+	var scope tele.CommandScope
+	scope.Type = tele.CommandScopeAllGroupChats
 
 	return scope
 }

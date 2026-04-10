@@ -13,6 +13,40 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestSQLiteDSN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		dbPath string
+		want   string
+	}{
+		{
+			name:   "relative path",
+			dbPath: "mangoduck.db",
+			want:   "mangoduck.db?_pragma=busy_timeout(5000)",
+		},
+		{
+			name:   "absolute path",
+			dbPath: "/tmp/mangoduck.db",
+			want:   "/tmp/mangoduck.db?_pragma=busy_timeout(5000)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, sqliteDSN(tt.dbPath))
+		})
+	}
+}
+
+func TestOpenRejectsSQLiteURIPath(t *testing.T) {
+	_, err := Open("file:mangoduck.db?cache=shared")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "database path must be a sqlite file path, not a URI")
+}
+
 func TestOpenAppliesSquashedInitialMigration(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "fresh.db")
 
@@ -80,6 +114,12 @@ func TestOpenConfiguresSQLiteForConcurrentAccess(t *testing.T) {
 	err = conn.QueryRowContext(context.Background(), `PRAGMA busy_timeout`).Scan(&busyTimeoutMillis)
 	require.NoError(t, err)
 	require.Equal(t, sqliteBusyTimeoutMillis, busyTimeoutMillis)
+}
+
+func TestOpenRejectsQueryStringInPath(t *testing.T) {
+	_, err := Open("mangoduck.db?cache=shared")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "database path must be a sqlite file path, not a URI")
 }
 
 func TestOpenHandlesConcurrentWrites(t *testing.T) {
