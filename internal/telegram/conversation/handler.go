@@ -405,27 +405,6 @@ func resolveExternalReplyAuthorName(reply *tele.ExternalReply) string {
 	return ""
 }
 
-func resolveForwardOriginName(message *tele.Message) string {
-	if message == nil {
-		return ""
-	}
-
-	if message.OriginalSender != nil {
-		return resolveSenderName(message.OriginalSender)
-	}
-
-	originalSenderName := strings.TrimSpace(message.OriginalSenderName)
-	if originalSenderName != "" {
-		return originalSenderName
-	}
-
-	if message.OriginalChat != nil {
-		return resolveChatName(message.OriginalChat)
-	}
-
-	return ""
-}
-
 func describeForwardOrigin(message *tele.Message) string {
 	if message == nil {
 		return ""
