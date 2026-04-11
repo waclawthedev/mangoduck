@@ -35,9 +35,10 @@ type Service struct {
 	runner   *cron.Cron
 	logger   *zap.Logger
 
-	mu       sync.Mutex
-	entryIDs map[int64]cron.EntryID
-	running  map[int64]*atomic.Bool
+	mu            sync.Mutex
+	lifecycleDone <-chan struct{}
+	entryIDs      map[int64]cron.EntryID
+	running       map[int64]*atomic.Bool
 }
 
 type Option func(*Service)
@@ -92,6 +93,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	s.setLifecycleDone(ctx.Done())
 
 	tasks, err := s.repo.List(ctx)
 	if err != nil {
@@ -131,15 +133,8 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 func (s *Service) AddTask(task *repo.CronTask) error {
-	return s.AddTaskWithContext(context.Background(), task)
-}
-
-func (s *Service) AddTaskWithContext(ctx context.Context, task *repo.CronTask) error {
 	if task == nil {
 		return errors.New("cron task is nil")
-	}
-	if ctx == nil {
-		ctx = context.Background()
 	}
 
 	schedule := strings.TrimSpace(task.Schedule)
@@ -147,7 +142,7 @@ func (s *Service) AddTaskWithContext(ctx context.Context, task *repo.CronTask) e
 		return errors.New("cron task schedule is required")
 	}
 
-	entryID, err := s.runner.AddFunc(schedule, s.buildJob(ctx, task))
+	entryID, err := s.runner.AddFunc(schedule, s.buildJob(task))
 	if err != nil {
 		return fmt.Errorf("registering cron task: %w", err)
 	}
@@ -181,7 +176,7 @@ func (s *Service) RemoveTask(taskID int64) {
 	delete(s.running, taskID)
 }
 
-func (s *Service) buildJob(ctx context.Context, task *repo.CronTask) func() {
+func (s *Service) buildJob(task *repo.CronTask) func() {
 	taskID := task.ID
 	chatID := task.ChatID
 	prompt := strings.TrimSpace(task.Prompt)
@@ -195,6 +190,8 @@ func (s *Service) buildJob(ctx context.Context, task *repo.CronTask) func() {
 		defer running.Store(false)
 
 		s.logger.Debug("cron task started", zap.Int64("task_id", taskID), zap.Int64("chat_id", chatID))
+		ctx, cancel := s.newJobContext()
+		defer cancel()
 
 		result, err := s.executeScheduled(ctx, chatID, prompt)
 		if err != nil {
@@ -231,6 +228,39 @@ func (s *Service) runningFlag(taskID int64) *atomic.Bool {
 	s.running[taskID] = flag
 
 	return flag
+}
+
+func (s *Service) setLifecycleDone(done <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.lifecycleDone = done
+}
+
+func (s *Service) lifecycleChannel() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.lifecycleDone
+}
+
+func (s *Service) newJobContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := s.lifecycleChannel()
+	if done == nil {
+		return ctx, cancel
+	}
+
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
 }
 
 func (s *Service) executeScheduled(ctx context.Context, chatID int64, prompt string) (string, error) {
