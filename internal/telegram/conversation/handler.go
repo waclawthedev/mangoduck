@@ -112,7 +112,7 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 		}
 
 		message := strings.TrimSpace(c.Text())
-		photo := currentPhoto(c)
+		photo := resolveRequestPhoto(c.Message())
 		if message == "" && photo == nil {
 			return nil
 		}
@@ -212,13 +212,24 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 	}
 }
 
-func currentPhoto(c tele.Context) *tele.Photo {
-	message := c.Message()
+func resolveRequestPhoto(message *tele.Message) *tele.Photo {
 	if message == nil {
 		return nil
 	}
 
-	return message.Photo
+	if message.Photo != nil {
+		return message.Photo
+	}
+
+	if message.ReplyTo != nil && message.ReplyTo.Photo != nil {
+		return message.ReplyTo.Photo
+	}
+
+	if message.ExternalReply != nil && len(message.ExternalReply.Photo) > 0 {
+		return &message.ExternalReply.Photo[len(message.ExternalReply.Photo)-1]
+	}
+
+	return nil
 }
 
 func buildRequestImage(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {

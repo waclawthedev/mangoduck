@@ -17,7 +17,7 @@ Mangoduck is a Go Telegram bot built for a single user or small teams that colla
 
 Admin privileges are not stored in the database. They are derived directly from `config.yaml` under `admin.tg_ids`; every other user is treated as a regular user. Admin status is used for chat-management flows, while cron task tools are available to any active chat.
 
-The bot runs in an agentic loop on top of the Responses API, can call built-in tools such as web search and memory management, and can expose external MCP tools during a chat turn. It stores normalized conversation items locally in SQLite, including multimodal user inputs such as text plus Telegram photos, and replays them per `chat_id` on each request, while keeping the provider side stateless for the main chat flow. For live Telegram chat turns, the latest input text is wrapped into a compact structured format with a `[telegram-context]` block plus a `[user-message]` block so the model can tell who is speaking and whether the message is a reply, quote, external reply, sender-chat post, or forwarded content.
+The bot runs in an agentic loop on top of the Responses API, can call built-in tools such as web search and memory management, and can expose external MCP tools during a chat turn. It stores normalized conversation items locally in SQLite, including multimodal user inputs such as text plus Telegram photos, and replays them per `chat_id` on each request, while keeping the provider side stateless for the main chat flow. For live Telegram chat turns, the latest input text is wrapped into a compact structured format with a `[telegram-context]` block plus a `[user-message]` block so the model can tell who is speaking and whether the message is a reply, quote, external reply, sender-chat post, or forwarded content. When a user replies to a Telegram photo, Mangoduck also forwards the referenced image to the model when Telegram supplies an accessible photo object.
 
 ## Features
 
@@ -39,7 +39,7 @@ The bot runs in an agentic loop on top of the Responses API, can call built-in t
 3. In groups and supergroups, the bot replies only if the message mentions the bot or directly replies to a bot message.
 4. If the chat is inactive, the bot asks for approval and shows the chat ID.
 5. When an admin activates a chat through `/chats`, the bot sends an approval message into that same Telegram chat.
-6. If the chat is active, the bot replays locally stored normalized Responses items for that `chat_id`, injects per-chat memory, builds the latest user input as a structured `[telegram-context]` plus `[user-message]` payload with sender, reply, quote, external-reply, sender-chat, or forwarded-message metadata when present, and sends a fresh stateless request to the model.
+6. If the chat is active, the bot replays locally stored normalized Responses items for that `chat_id`, injects per-chat memory, builds the latest user input as a structured `[telegram-context]` plus `[user-message]` payload with sender, reply, quote, external-reply, sender-chat, or forwarded-message metadata when present, attaches the current Telegram photo or a replied-to photo when available, and sends a fresh stateless request to the model.
 7. The model may answer directly or call exactly one tool in a step.
 8. Tool results are stored locally as normalized items and fed back into the next model step.
 9. The final assistant response is sent back to the same Telegram chat as Telegram-compatible HTML.
@@ -165,7 +165,7 @@ Mangoduck keeps the provider-side main chat flow stateless:
 
 - It does not use `store=true`.
 - It does not use `previous_response_id`.
-- It stores normalized user message items, including `input_text` in a structured `[telegram-context]` plus `[user-message]` format with sender, reply, quote, external-reply, sender-chat, or forward metadata when available and optional `input_image`, plus `assistant text`, `function_call`, and `function_call_output` items locally by Telegram `chat_id`.
+- It stores normalized user message items, including `input_text` in a structured `[telegram-context]` plus `[user-message]` format with sender, reply, quote, external-reply, sender-chat, or forward metadata when available and optional `input_image` from the current message photo or a replied-to photo, plus `assistant text`, `function_call`, and `function_call_output` items locally by Telegram `chat_id`.
 - Scheduled cron runs execute without replaying chat history.
 
 ## Requirements
