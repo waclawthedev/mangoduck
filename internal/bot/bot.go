@@ -149,13 +149,15 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 	}
 
 	chatService, err := chat.NewService(
-		responsesClient,
-		xSearchService,
-		webSearchService,
-		inputsOutputsRepo,
-		cronTasksRepo,
-		scheduler,
-		cfg.MainModel,
+		chat.Dependencies{
+			Client:          responsesClient,
+			XSearcher:       xSearchService,
+			WebSearcher:     webSearchService,
+			HistoryStore:    inputsOutputsRepo,
+			CronTaskStore:   cronTasksRepo,
+			CronTaskManager: scheduler,
+			Model:           cfg.MainModel,
+		},
 		chat.WithLogger(logger),
 		chat.WithXSearchEnabled(cfg.XSearchEnabled()),
 		chat.WithWebSearchEnabled(cfg.OpenAIWebSearchEnabled()),

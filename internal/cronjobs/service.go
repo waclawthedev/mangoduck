@@ -35,7 +35,6 @@ type Service struct {
 	runner   *cron.Cron
 	logger   *zap.Logger
 
-	ctx      context.Context
 	mu       sync.Mutex
 	entryIDs map[int64]cron.EntryID
 	running  map[int64]*atomic.Bool
@@ -57,7 +56,6 @@ func NewService(repo Lister, executor Executor, sender Sender, options ...Option
 	service.sender = sender
 	service.runner = cron.New(cron.WithLocation(time.Local))
 	service.logger = zap.NewNop()
-	service.ctx = context.Background()
 	service.entryIDs = make(map[int64]cron.EntryID)
 	service.running = make(map[int64]*atomic.Bool)
 
@@ -91,7 +89,9 @@ func WithLogger(logger *zap.Logger) Option {
 }
 
 func (s *Service) Start(ctx context.Context) error {
-	s.setContext(ctx)
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	tasks, err := s.repo.List(ctx)
 	if err != nil {
@@ -131,8 +131,15 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 func (s *Service) AddTask(task *repo.CronTask) error {
+	return s.AddTaskWithContext(context.Background(), task)
+}
+
+func (s *Service) AddTaskWithContext(ctx context.Context, task *repo.CronTask) error {
 	if task == nil {
 		return errors.New("cron task is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	schedule := strings.TrimSpace(task.Schedule)
@@ -140,7 +147,7 @@ func (s *Service) AddTask(task *repo.CronTask) error {
 		return errors.New("cron task schedule is required")
 	}
 
-	entryID, err := s.runner.AddFunc(schedule, s.buildJob(task))
+	entryID, err := s.runner.AddFunc(schedule, s.buildJob(ctx, task))
 	if err != nil {
 		return fmt.Errorf("registering cron task: %w", err)
 	}
@@ -174,7 +181,7 @@ func (s *Service) RemoveTask(taskID int64) {
 	delete(s.running, taskID)
 }
 
-func (s *Service) buildJob(task *repo.CronTask) func() {
+func (s *Service) buildJob(ctx context.Context, task *repo.CronTask) func() {
 	taskID := task.ID
 	chatID := task.ChatID
 	prompt := strings.TrimSpace(task.Prompt)
@@ -189,7 +196,6 @@ func (s *Service) buildJob(task *repo.CronTask) func() {
 
 		s.logger.Debug("cron task started", zap.Int64("task_id", taskID), zap.Int64("chat_id", chatID))
 
-		ctx := s.context()
 		result, err := s.executeScheduled(ctx, chatID, prompt)
 		if err != nil {
 			s.logger.Error("cron task execution failed", zap.Int64("task_id", taskID), zap.Error(err))
@@ -225,28 +231,6 @@ func (s *Service) runningFlag(taskID int64) *atomic.Bool {
 	s.running[taskID] = flag
 
 	return flag
-}
-
-func (s *Service) setContext(ctx context.Context) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.ctx = ctx
-}
-
-func (s *Service) context() context.Context {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.ctx == nil {
-		return context.Background()
-	}
-
-	return s.ctx
 }
 
 func (s *Service) executeScheduled(ctx context.Context, chatID int64, prompt string) (string, error) {

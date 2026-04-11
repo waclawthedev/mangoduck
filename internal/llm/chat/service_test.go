@@ -277,6 +277,13 @@ type stubToolExecution struct {
 	arguments string
 }
 
+func newTestService(
+	deps chat.Dependencies,
+	options ...chat.Option,
+) (*chat.Service, error) {
+	return chat.NewService(deps, options...)
+}
+
 func (r *stubToolRuntime) Tools() []*responses.Tool {
 	return r.tools
 }
@@ -299,7 +306,14 @@ func TestNewServiceUsesDefaultModel(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -338,14 +352,13 @@ func TestReplyOmitsDisabledBuiltInSearchTools(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(
-		&client,
-		nil,
-		nil,
-		&historyStore,
-		&cronTaskStore,
-		&cronTaskManager,
-		"",
+	service, err := newTestService(
+		chat.Dependencies{
+			Client:          &client,
+			HistoryStore:    &historyStore,
+			CronTaskStore:   &cronTaskStore,
+			CronTaskManager: &cronTaskManager,
+		},
 		chat.WithXSearchEnabled(false),
 		chat.WithWebSearchEnabled(false),
 	)
@@ -374,7 +387,14 @@ func TestReplyRequiresMessage(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -397,7 +417,15 @@ func TestReplyAllowsImageOnlyInput(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -428,7 +456,15 @@ func TestReplyBuildsCaptionAndImageUserItem(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -472,14 +508,16 @@ func TestReplyIncludesAndExecutesRuntimeTools(t *testing.T) {
 	}
 	factory := &stubToolRuntimeFactory{runtime: runtime}
 
-	service, err := chat.NewService(
-		&client,
-		&xSearcher,
-		&webSearcher,
-		&historyStore,
-		&cronTaskStore,
-		&cronTaskManager,
-		"gpt-5",
+	service, err := newTestService(
+		chat.Dependencies{
+			Client:          &client,
+			XSearcher:       &xSearcher,
+			WebSearcher:     &webSearcher,
+			HistoryStore:    &historyStore,
+			CronTaskStore:   &cronTaskStore,
+			CronTaskManager: &cronTaskManager,
+			Model:           "gpt-5",
+		},
 		chat.WithToolRuntimeFactory(factory),
 	)
 	require.NoError(t, err)
@@ -511,7 +549,15 @@ func TestReplyReturnsOutputTextWithoutFunctionCall(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -549,7 +595,15 @@ func TestReplyUsesPersistedHistoryAndStoresFunctionLoopItems(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	var toolStatuses []string
@@ -603,7 +657,15 @@ func TestReplyReplaysPersistedImageHistory(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -636,7 +698,15 @@ func TestReplyNotifiesEveryToolStepWithSpecificStatus(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	var toolStatuses []string
@@ -671,7 +741,15 @@ func TestReplyStoresNormalizedAssistantTextOnly(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -698,7 +776,15 @@ func TestReplyRejectsMultipleFunctionCallsInSingleStep(t *testing.T) {
 	var historyStore stubHistoryStore
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -720,7 +806,15 @@ func TestReplyRejectsInvalidFunctionArguments(t *testing.T) {
 	var historyStore stubHistoryStore
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -745,7 +839,15 @@ func TestReplyRoutesWebSearchFunctionCall(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -774,7 +876,15 @@ func TestReplyDoesNotFailOnEmptyXSearchQuery(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -801,7 +911,15 @@ func TestReplyDoesNotFailOnEmptyWebSearchQuery(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -836,7 +954,15 @@ func TestReplyAddsCronTaskForAnyUser(t *testing.T) {
 	}
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -881,7 +1007,15 @@ func TestReplyListsCronTasksForAnyUser(t *testing.T) {
 	}
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -910,7 +1044,15 @@ func TestReplyReturnsEmptyCronTaskListForAnyUser(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -945,7 +1087,15 @@ func TestReplyListsCronTasksForNonAdmin(t *testing.T) {
 	}
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -979,7 +1129,15 @@ func TestReplyAddsCronTaskForNonAdmin(t *testing.T) {
 	}
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -1012,7 +1170,15 @@ func TestReplyRejectsDeletingCronTaskFromAnotherChat(t *testing.T) {
 	}
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -1045,7 +1211,15 @@ func TestExecuteScheduledDoesNotUseHistoryAndDisablesCronTools(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	text, err := service.ExecuteScheduled(context.Background(), 55, "run task")
@@ -1080,7 +1254,15 @@ func TestReplySystemPromptGuidesCronPromptAuthoring(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -1128,14 +1310,16 @@ func TestReplyPromptForRecurringRequestMakesCronToolsTheRightAction(t *testing.T
 	var cronTaskManager stubCronTaskManager
 	var memoryStore stubMemoryStore
 
-	service, err := chat.NewService(
-		&client,
-		&xSearcher,
-		&webSearcher,
-		&historyStore,
-		&cronTaskStore,
-		&cronTaskManager,
-		"gpt-5",
+	service, err := newTestService(
+		chat.Dependencies{
+			Client:          &client,
+			XSearcher:       &xSearcher,
+			WebSearcher:     &webSearcher,
+			HistoryStore:    &historyStore,
+			CronTaskStore:   &cronTaskStore,
+			CronTaskManager: &cronTaskManager,
+			Model:           "gpt-5",
+		},
 		chat.WithMemoryStore(&memoryStore),
 	)
 	require.NoError(t, err)
@@ -1161,7 +1345,14 @@ func TestReplyReturnsClientError(t *testing.T) {
 	var historyStore stubHistoryStore
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "")
+	service, err := newTestService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
@@ -1188,14 +1379,16 @@ func TestReplyInjectsPersistedMemoryIntoSystemPrompt(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(
-		&client,
-		&xSearcher,
-		&webSearcher,
-		&historyStore,
-		&cronTaskStore,
-		&cronTaskManager,
-		"gpt-5",
+	service, err := newTestService(
+		chat.Dependencies{
+			Client:          &client,
+			XSearcher:       &xSearcher,
+			WebSearcher:     &webSearcher,
+			HistoryStore:    &historyStore,
+			CronTaskStore:   &cronTaskStore,
+			CronTaskManager: &cronTaskManager,
+			Model:           "gpt-5",
+		},
 		chat.WithMemoryStore(&memoryStore),
 	)
 	require.NoError(t, err)
@@ -1232,14 +1425,16 @@ func TestReplySupportsMemoryGetAndSetTools(t *testing.T) {
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(
-		&client,
-		&xSearcher,
-		&webSearcher,
-		&historyStore,
-		&cronTaskStore,
-		&cronTaskManager,
-		"gpt-5",
+	service, err := newTestService(
+		chat.Dependencies{
+			Client:          &client,
+			XSearcher:       &xSearcher,
+			WebSearcher:     &webSearcher,
+			HistoryStore:    &historyStore,
+			CronTaskStore:   &cronTaskStore,
+			CronTaskManager: &cronTaskManager,
+			Model:           "gpt-5",
+		},
 		chat.WithMemoryStore(&memoryStore),
 	)
 	require.NoError(t, err)

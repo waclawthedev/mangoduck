@@ -59,7 +59,6 @@ func TestBuildJobStopsWaitingForExecutorWhenContextIsCancelled(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	service.setContext(ctx)
 
 	var task repo.CronTask
 	task.ID = 1
@@ -69,7 +68,7 @@ func TestBuildJobStopsWaitingForExecutorWhenContextIsCancelled(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		service.buildJob(&task)()
+		service.buildJob(ctx, &task)()
 	}()
 
 	<-executor.called
@@ -94,7 +93,6 @@ func TestBuildJobStopsWaitingForSenderWhenContextIsCancelled(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	service.setContext(ctx)
 
 	var task repo.CronTask
 	task.ID = 1
@@ -104,7 +102,7 @@ func TestBuildJobStopsWaitingForSenderWhenContextIsCancelled(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		service.buildJob(&task)()
+		service.buildJob(ctx, &task)()
 	}()
 
 	<-sender.called

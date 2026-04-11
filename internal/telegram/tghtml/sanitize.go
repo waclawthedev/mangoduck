@@ -84,14 +84,11 @@ func collectAttributes(tokenizer *xhtml.Tokenizer, hasAttrs bool) map[string]str
 
 func handleStartTag(builder *strings.Builder, stack *[]string, tagName string, attrs map[string]string, selfClosing bool) {
 	switch tagName {
-	case "br":
+	case "br", "div", "ul", "ol":
 		appendNewlines(builder, 1)
 		return
 	case "p":
 		appendNewlines(builder, 2)
-		return
-	case "div", "ul", "ol":
-		appendNewlines(builder, 1)
 		return
 	case "li":
 		appendListItemPrefix(builder)

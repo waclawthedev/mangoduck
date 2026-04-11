@@ -150,33 +150,34 @@ type Service struct {
 	logger           *zap.Logger
 }
 
-func NewService(
-	client responses.ResponseCreator,
-	xSearcher XSearchExecutor,
-	webSearcher WebSearchExecutor,
-	historyStore HistoryStore,
-	cronTaskStore CronTaskStore,
-	cronTaskManager CronTaskManager,
-	model string,
-	options ...Option,
-) (*Service, error) {
-	if client == nil {
+type Dependencies struct {
+	Client          responses.ResponseCreator
+	XSearcher       XSearchExecutor
+	WebSearcher     WebSearchExecutor
+	HistoryStore    HistoryStore
+	CronTaskStore   CronTaskStore
+	CronTaskManager CronTaskManager
+	Model           string
+}
+
+func NewService(deps Dependencies, options ...Option) (*Service, error) {
+	if deps.Client == nil {
 		return nil, errors.New("chat client is required")
 	}
 
-	model = strings.TrimSpace(model)
+	model := strings.TrimSpace(deps.Model)
 	if model == "" {
 		model = DefaultModel
 	}
 
 	var service Service
-	service.client = client
-	service.xSearcher = xSearcher
-	service.webSearcher = webSearcher
-	service.historyStore = historyStore
+	service.client = deps.Client
+	service.xSearcher = deps.XSearcher
+	service.webSearcher = deps.WebSearcher
+	service.historyStore = deps.HistoryStore
 	service.memoryStore = noopMemoryStore{}
-	service.cronTaskStore = cronTaskStore
-	service.cronTaskManager = cronTaskManager
+	service.cronTaskStore = deps.CronTaskStore
+	service.cronTaskManager = deps.CronTaskManager
 	service.model = model
 	service.maxSteps = defaultMaxSteps
 	service.xSearchEnabled = true
@@ -191,23 +192,23 @@ func NewService(
 		option(&service)
 	}
 
-	if service.xSearchEnabled && xSearcher == nil {
+	if service.xSearchEnabled && deps.XSearcher == nil {
 		return nil, ErrMissingSearchExecutor
 	}
 
-	if service.webSearchEnabled && webSearcher == nil {
+	if service.webSearchEnabled && deps.WebSearcher == nil {
 		return nil, ErrMissingWebSearchExecutor
 	}
 
-	if historyStore == nil {
+	if deps.HistoryStore == nil {
 		return nil, ErrMissingHistoryStore
 	}
 
-	if cronTaskStore == nil {
+	if deps.CronTaskStore == nil {
 		return nil, ErrMissingCronTaskStore
 	}
 
-	if cronTaskManager == nil {
+	if deps.CronTaskManager == nil {
 		return nil, ErrMissingCronTaskManager
 	}
 
