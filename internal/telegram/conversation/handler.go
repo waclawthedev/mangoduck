@@ -226,7 +226,7 @@ func resolveRequestPhoto(message *tele.Message) *tele.Photo {
 	}
 
 	if message.ExternalReply != nil && len(message.ExternalReply.Photo) > 0 {
-		return &message.ExternalReply.Photo[0]
+		return &message.ExternalReply.Photo[len(message.ExternalReply.Photo)-1]
 	}
 
 	return nil

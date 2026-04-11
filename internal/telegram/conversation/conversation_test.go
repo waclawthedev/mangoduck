@@ -1135,7 +1135,7 @@ func TestChat_BuildsExternalReplyPhotoRequest(t *testing.T) {
 	originalImageBuilder := requestImageBuilder
 	requestImageBuilder = func(ctx context.Context, c tele.Context, photo *tele.Photo) (*llmchat.InputImage, error) {
 		require.NotNil(t, photo)
-		require.Equal(t, "external-photo", photo.FileID)
+		require.Equal(t, "external-photo-2", photo.FileID)
 
 		var image llmchat.InputImage
 		image.MIMEType = "image/webp"
