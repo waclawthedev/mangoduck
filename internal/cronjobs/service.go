@@ -16,7 +16,7 @@ import (
 	"mangoduck/internal/repo"
 )
 
-type Repository interface {
+type Lister interface {
 	List(ctx context.Context) ([]*repo.CronTask, error)
 }
 
@@ -29,21 +29,21 @@ type Sender interface {
 }
 
 type Service struct {
-	repo     Repository
+	repo     Lister
 	executor Executor
 	sender   Sender
 	runner   *cron.Cron
 	logger   *zap.Logger
 
-	ctx      context.Context
-	mu       sync.Mutex
-	entryIDs map[int64]cron.EntryID
-	running  map[int64]*atomic.Bool
+	mu            sync.Mutex
+	lifecycleDone <-chan struct{}
+	entryIDs      map[int64]cron.EntryID
+	running       map[int64]*atomic.Bool
 }
 
 type Option func(*Service)
 
-func NewService(repo Repository, executor Executor, sender Sender, options ...Option) (*Service, error) {
+func NewService(repo Lister, executor Executor, sender Sender, options ...Option) (*Service, error) {
 	if repo == nil {
 		return nil, errors.New("cron jobs repository is required")
 	}
@@ -57,7 +57,6 @@ func NewService(repo Repository, executor Executor, sender Sender, options ...Op
 	service.sender = sender
 	service.runner = cron.New(cron.WithLocation(time.Local))
 	service.logger = zap.NewNop()
-	service.ctx = context.Background()
 	service.entryIDs = make(map[int64]cron.EntryID)
 	service.running = make(map[int64]*atomic.Bool)
 
@@ -91,7 +90,10 @@ func WithLogger(logger *zap.Logger) Option {
 }
 
 func (s *Service) Start(ctx context.Context) error {
-	s.setContext(ctx)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.setLifecycleDone(ctx.Done())
 
 	tasks, err := s.repo.List(ctx)
 	if err != nil {
@@ -188,8 +190,9 @@ func (s *Service) buildJob(task *repo.CronTask) func() {
 		defer running.Store(false)
 
 		s.logger.Debug("cron task started", zap.Int64("task_id", taskID), zap.Int64("chat_id", chatID))
+		ctx, cancel := s.newJobContext()
+		defer cancel()
 
-		ctx := s.context()
 		result, err := s.executeScheduled(ctx, chatID, prompt)
 		if err != nil {
 			s.logger.Error("cron task execution failed", zap.Int64("task_id", taskID), zap.Error(err))
@@ -227,26 +230,37 @@ func (s *Service) runningFlag(taskID int64) *atomic.Bool {
 	return flag
 }
 
-func (s *Service) setContext(ctx context.Context) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
+func (s *Service) setLifecycleDone(done <-chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.ctx = ctx
+	s.lifecycleDone = done
 }
 
-func (s *Service) context() context.Context {
+func (s *Service) lifecycleChannel() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.ctx == nil {
-		return context.Background()
+	return s.lifecycleDone
+}
+
+func (s *Service) newJobContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := s.lifecycleChannel()
+	if done == nil {
+		return ctx, cancel
 	}
 
-	return s.ctx
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
 }
 
 func (s *Service) executeScheduled(ctx context.Context, chatID int64, prompt string) (string, error) {

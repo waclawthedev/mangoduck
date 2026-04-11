@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	// Register the modernc SQLite driver for database/sql in tests.
 	_ "modernc.org/sqlite"
 )
 

@@ -27,7 +27,15 @@ func TestReplyReturnsFallbackTextWhenToolLoopEndsWithoutFinalAnswer(t *testing.T
 	var cronTaskStore stubCronTaskStore
 	var cronTaskManager stubCronTaskManager
 
-	service, err := chat.NewService(&client, &xSearcher, &webSearcher, &historyStore, &cronTaskStore, &cronTaskManager, "gpt-5")
+	service, err := chat.NewService(chat.Dependencies{
+		Client:          &client,
+		XSearcher:       &xSearcher,
+		WebSearcher:     &webSearcher,
+		HistoryStore:    &historyStore,
+		CronTaskStore:   &cronTaskStore,
+		CronTaskManager: &cronTaskManager,
+		Model:           "gpt-5",
+	})
 	require.NoError(t, err)
 
 	reply, err := service.Reply(context.Background(), &chat.Request{

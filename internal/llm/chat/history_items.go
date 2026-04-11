@@ -57,7 +57,7 @@ func buildImageDataURL(image *InputImage) string {
 	return "data:" + strings.TrimSpace(image.MIMEType) + ";base64," + strings.TrimSpace(image.DataBase64)
 }
 
-func buildFunctionCallOutputItem(callID string, output string) (json.RawMessage, error) {
+func buildFunctionCallOutputItem(callID, output string) (json.RawMessage, error) {
 	payload := map[string]any{
 		"type":    "function_call_output",
 		"call_id": callID,

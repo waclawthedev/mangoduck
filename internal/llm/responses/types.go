@@ -15,7 +15,7 @@ var (
 	ErrMissingInput        = errors.New("responses input is required")
 )
 
-type Client interface {
+type ResponseCreator interface {
 	CreateResponse(ctx context.Context, request *CreateResponseRequest) (*Response, error)
 }
 

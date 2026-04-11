@@ -180,7 +180,7 @@ func normalizeEscapedTag(candidate string) (*normalizedEscapedTag, bool) {
 	}
 }
 
-func hasMatchingEscapedEndTag(text string, tagName string) bool {
+func hasMatchingEscapedEndTag(text, tagName string) bool {
 	for idx := 0; idx < len(text); {
 		start := strings.Index(text[idx:], escapedTagOpen)
 		if start < 0 {

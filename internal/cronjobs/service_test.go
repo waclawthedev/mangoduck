@@ -59,7 +59,7 @@ func TestBuildJobStopsWaitingForExecutorWhenContextIsCancelled(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	service.setContext(ctx)
+	service.setLifecycleDone(ctx.Done())
 
 	var task repo.CronTask
 	task.ID = 1
@@ -94,7 +94,7 @@ func TestBuildJobStopsWaitingForSenderWhenContextIsCancelled(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	service.setContext(ctx)
+	service.setLifecycleDone(ctx.Done())
 
 	var task repo.CronTask
 	task.ID = 1
@@ -144,6 +144,31 @@ func TestExecuteScheduledReturnsContextErrorWhenCancelled(t *testing.T) {
 		require.ErrorIs(t, execErr, context.Canceled)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for executeScheduled to return")
+	}
+}
+
+func TestNewJobContextUsesLifecycleCancellation(t *testing.T) {
+	t.Parallel()
+
+	var repository stubRepository
+	var sender noopSender
+
+	service, err := NewService(&repository, nil, &sender)
+	require.NoError(t, err)
+
+	lifecycleCtx, cancel := context.WithCancel(context.Background())
+	service.setLifecycleDone(lifecycleCtx.Done())
+
+	ctx, ctxCancel := service.newJobContext()
+	defer ctxCancel()
+
+	cancel()
+
+	select {
+	case <-ctx.Done():
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for job context to observe lifecycle cancellation")
 	}
 }
 

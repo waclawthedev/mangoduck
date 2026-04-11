@@ -21,7 +21,7 @@ const (
 var ErrMissingQuery = errors.New("search x query is required")
 
 type Service struct {
-	client responses.Client
+	client responses.ResponseCreator
 	model  string
 	logger *zap.Logger
 }
@@ -44,7 +44,7 @@ type SearchResult struct {
 	Text       string
 }
 
-func NewService(client responses.Client, model string, options ...Option) (*Service, error) {
+func NewService(client responses.ResponseCreator, model string, options ...Option) (*Service, error) {
 	if client == nil {
 		return nil, errors.New("search x client is required")
 	}

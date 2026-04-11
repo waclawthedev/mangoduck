@@ -11,6 +11,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	// Register the modernc SQLite driver for database/sql.
 	_ "modernc.org/sqlite"
 )
 

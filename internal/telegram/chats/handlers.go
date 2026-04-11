@@ -430,7 +430,7 @@ func calcTotalPages(totalChats int) int {
 	return pages
 }
 
-func normalizePage(page int, totalPages int) int {
+func normalizePage(page, totalPages int) int {
 	if page < 1 {
 		return 1
 	}
