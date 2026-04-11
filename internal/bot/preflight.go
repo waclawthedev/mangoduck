@@ -30,9 +30,9 @@ func runStartupPreflight(
 	ctx context.Context,
 	cfg config.Config,
 	logger *zap.Logger,
-	mainClient responses.Client,
-	xaiClient responses.Client,
-	openAIWebSearchClient responses.Client,
+	mainClient responses.ResponseCreator,
+	xaiClient responses.ResponseCreator,
+	openAIWebSearchClient responses.ResponseCreator,
 	mcpChecker startupMCPChecker,
 ) error {
 	logger = logging.WithComponent(logger, "preflight")
@@ -84,7 +84,7 @@ func runStartupPreflight(
 	return nil
 }
 
-func checkResponsesAPI(ctx context.Context, client responses.Client, target string, model string, timeout time.Duration) error {
+func checkResponsesAPI(ctx context.Context, client responses.ResponseCreator, target, model string, timeout time.Duration) error {
 	if client == nil {
 		return fmt.Errorf("%s client is required", target)
 	}

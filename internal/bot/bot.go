@@ -93,7 +93,7 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 		return nil, err
 	}
 
-	var openAIWebSearchClient responses.Client
+	var openAIWebSearchClient responses.ResponseCreator
 	var webSearchService *websearch.Service
 	if cfg.OpenAIWebSearchEnabled() {
 		openAIWebSearchClient, err = openairesponses.NewClient(openairesponses.Config{
@@ -111,7 +111,7 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 		}
 	}
 
-	var xaiClient responses.Client
+	var xaiClient responses.ResponseCreator
 	var xSearchService *searchx.Service
 	if cfg.XSearchEnabled() {
 		xaiClient, err = xairesponses.NewClient(xairesponses.Config{

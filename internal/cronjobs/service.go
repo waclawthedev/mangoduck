@@ -16,7 +16,7 @@ import (
 	"mangoduck/internal/repo"
 )
 
-type Repository interface {
+type Lister interface {
 	List(ctx context.Context) ([]*repo.CronTask, error)
 }
 
@@ -29,7 +29,7 @@ type Sender interface {
 }
 
 type Service struct {
-	repo     Repository
+	repo     Lister
 	executor Executor
 	sender   Sender
 	runner   *cron.Cron
@@ -43,7 +43,7 @@ type Service struct {
 
 type Option func(*Service)
 
-func NewService(repo Repository, executor Executor, sender Sender, options ...Option) (*Service, error) {
+func NewService(repo Lister, executor Executor, sender Sender, options ...Option) (*Service, error) {
 	if repo == nil {
 		return nil, errors.New("cron jobs repository is required")
 	}

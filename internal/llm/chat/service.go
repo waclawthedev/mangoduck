@@ -76,7 +76,7 @@ type CronTaskManager interface {
 
 type ToolCallNotifier func(statusText string) error
 
-type ToolRuntimeFactory interface {
+type SessionOpener interface {
 	OpenSession(ctx context.Context) (ToolRuntime, error)
 }
 
@@ -135,14 +135,14 @@ type stepState struct {
 }
 
 type Service struct {
-	client           responses.Client
+	client           responses.ResponseCreator
 	xSearcher        XSearchExecutor
 	webSearcher      WebSearchExecutor
 	historyStore     HistoryStore
 	memoryStore      MemoryStore
 	cronTaskStore    CronTaskStore
 	cronTaskManager  CronTaskManager
-	toolRuntime      ToolRuntimeFactory
+	toolRuntime      SessionOpener
 	model            string
 	maxSteps         int
 	xSearchEnabled   bool
@@ -151,7 +151,7 @@ type Service struct {
 }
 
 func NewService(
-	client responses.Client,
+	client responses.ResponseCreator,
 	xSearcher XSearchExecutor,
 	webSearcher WebSearchExecutor,
 	historyStore HistoryStore,
@@ -214,7 +214,7 @@ func NewService(
 	return &service, nil
 }
 
-func WithToolRuntimeFactory(factory ToolRuntimeFactory) Option {
+func WithToolRuntimeFactory(factory SessionOpener) Option {
 	return func(service *Service) {
 		if service == nil || factory == nil {
 			return
