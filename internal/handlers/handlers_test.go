@@ -186,7 +186,7 @@ func TestChat_SendsModelReplyForActiveChat(t *testing.T) {
 		replyFunc: func(ctx context.Context, request *chat.Request) (*chat.Result, error) {
 			assert.Equal(t, int64(7), request.ChatID)
 			assert.Equal(t, int64(42), request.UserTGID)
-			assert.Equal(t, "@boss here. Hello bot", request.Message)
+			assert.Equal(t, "[telegram-context]\nsender: @boss\nmessage_origin: direct\n[/telegram-context]\n\n[user-message]\nHello bot\n[/user-message]", request.Message)
 			assert.True(t, request.IsAdmin)
 			deadline, ok := ctx.Deadline()
 			assert.True(t, ok)
@@ -297,7 +297,7 @@ func TestChat_AllowsDirectReplyToBotWithoutMentionInGroup(t *testing.T) {
 
 	responderStub := &chatResponderStub{
 		replyFunc: func(ctx context.Context, request *chat.Request) (*chat.Result, error) {
-			assert.Equal(t, "In reply to @mangoduck: Original bot answer\n\n@boss here. help me", request.Message)
+			assert.Equal(t, "[telegram-context]\nsender: @boss\nreply_to_author: @mangoduck\nreply_to_text: Original bot answer\nmessage_origin: direct\n[/telegram-context]\n\n[user-message]\nhelp me\n[/user-message]", request.Message)
 			return &chat.Result{Text: "Hello human"}, nil
 		},
 	}

@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +66,19 @@ func (s *testHistoryClearer) Clear(ctx context.Context, chatID int64) error {
 	return s.clearFunc(ctx, chatID)
 }
 
+func expectedLLMMessage(userMessage string, contextLines ...string) string {
+	var builder strings.Builder
+	if len(contextLines) > 0 {
+		builder.WriteString("[telegram-context]\n")
+		builder.WriteString(strings.Join(contextLines, "\n"))
+		builder.WriteString("\n[/telegram-context]\n\n")
+	}
+	builder.WriteString("[user-message]\n")
+	builder.WriteString(userMessage)
+	builder.WriteString("\n[/user-message]")
+	return builder.String()
+}
+
 func TestChat_SendsPlaceholderAndEditsWhenToolUsed(t *testing.T) {
 	originalImageBuilder := requestImageBuilder
 	requestImageBuilder = buildRequestImage
@@ -119,9 +133,9 @@ func TestChat_SendsPlaceholderAndEditsWhenToolUsed(t *testing.T) {
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
 			require.Equal(t, int64(7), request.ChatID)
 			require.Equal(t, int64(42), request.UserTGID)
-			require.Equal(t, "@boss here. Hello bot", request.Message)
+			require.Equal(t, expectedLLMMessage("Hello bot", "sender: @boss", "message_origin: direct"), request.Message)
 			require.True(t, request.IsAdmin)
-			err := request.NotifyToolCall("Searching the web for: @boss here. Hello bot")
+			err := request.NotifyToolCall("Searching the web for: " + expectedLLMMessage("Hello bot", "sender: @boss", "message_origin: direct"))
 			require.NoError(t, err)
 			return &llmchat.Result{Text: "Final answer", UsedTool: true, PlaceholderNeeded: true}, nil
 		},
@@ -130,7 +144,7 @@ func TestChat_SendsPlaceholderAndEditsWhenToolUsed(t *testing.T) {
 	handler := Chat(cfg, repoStub, responder)
 	err := handler(ctx)
 	require.NoError(t, err)
-	require.Equal(t, "Searching the web for: @boss here. Hello bot", sentText)
+	require.Equal(t, "Searching the web for: "+expectedLLMMessage("Hello bot", "sender: @boss", "message_origin: direct"), sentText)
 	require.Equal(t, "Final answer", editedText)
 }
 
@@ -371,7 +385,7 @@ func TestChat_AcceptsDirectReplyToBotWithoutMentionInGroup(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "In reply to @mangoduck: Original bot answer\n\n@boss here. help me with this", request.Message)
+			require.Equal(t, expectedLLMMessage("help me with this", "sender: @boss", "reply_to_author: @mangoduck", "reply_to_text: Original bot answer", "message_origin: direct"), request.Message)
 			return &llmchat.Result{Text: "Sure"}, nil
 		},
 	}
@@ -427,7 +441,7 @@ func TestChat_TrimsLeadingBotMentionInGroupMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "@boss here. help me", request.Message)
+			require.Equal(t, expectedLLMMessage("help me", "sender: @boss", "message_origin: direct"), request.Message)
 			return &llmchat.Result{Text: "Hello human"}, nil
 		},
 	}
@@ -481,7 +495,7 @@ func TestChat_IncludesReplyContextInRequestMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "In reply to Alice (@alice): Ship it today\n\n@boss here. What did they mean?", request.Message)
+			require.Equal(t, expectedLLMMessage("What did they mean?", "sender: @boss", "reply_to_author: Alice (@alice)", "reply_to_text: Ship it today", "message_origin: direct"), request.Message)
 			return &llmchat.Result{Text: "I can help"}, nil
 		},
 	}
@@ -532,7 +546,7 @@ func TestChat_IncludesForwardContextInRequestMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "Forwarded message from Alice (@alice). Shared by @boss. Release is live", request.Message)
+			require.Equal(t, expectedLLMMessage("Release is live", "sender: @boss", "message_origin: forwarded", "forward_origin: Alice (@alice)"), request.Message)
 			return &llmchat.Result{Text: "Noted"}, nil
 		},
 	}
@@ -585,7 +599,7 @@ func TestChat_IncludesForwardedChannelPostContextInRequestMessage(t *testing.T) 
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "Forwarded message from channel Deploy News (@deploynews). Shared by @boss. Breaking: rollout paused", request.Message)
+			require.Equal(t, expectedLLMMessage("Breaking: rollout paused", "sender: @boss", "message_origin: forwarded", "forward_origin: channel Deploy News (@deploynews)"), request.Message)
 			return &llmchat.Result{Text: "Captured"}, nil
 		},
 	}
@@ -639,7 +653,7 @@ func TestChat_UsesForwardOriginWhenReplyingToForwardedMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "In reply to Alice (@alice): The outage is resolved\n\n@boss here. Is this accurate?", request.Message)
+			require.Equal(t, expectedLLMMessage("Is this accurate?", "sender: @boss", "reply_to_author: Alice (@alice)", "reply_to_text: The outage is resolved", "message_origin: direct"), request.Message)
 			return &llmchat.Result{Text: "Checking"}, nil
 		},
 	}
@@ -694,7 +708,7 @@ func TestChat_IncludesSenderChatReplyContextInRequestMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "In reply to channel post from Ops Alerts (@opsalerts): Maintenance starts in 10 minutes\n\n@boss here. Does this need action?", request.Message)
+			require.Equal(t, expectedLLMMessage("Does this need action?", "sender: @boss", "reply_to_author: channel post from Ops Alerts (@opsalerts)", "reply_to_text: Maintenance starts in 10 minutes", "message_origin: direct"), request.Message)
 			return &llmchat.Result{Text: "Looking"}, nil
 		},
 	}
@@ -751,7 +765,7 @@ func TestChat_IncludesQuotedReplyContextInRequestMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "In reply to Alice (@alice): Ship it today, but only after QA signs off. Quoted part: only after QA signs off\n\n@boss here. Can you interpret this?", request.Message)
+			require.Equal(t, expectedLLMMessage("Can you interpret this?", "sender: @boss", "reply_to_author: Alice (@alice)", "reply_to_text: Ship it today, but only after QA signs off.", "quote_text: only after QA signs off", "message_origin: direct"), request.Message)
 			return &llmchat.Result{Text: "Sure"}, nil
 		},
 	}
@@ -810,7 +824,7 @@ func TestChat_IncludesExternalReplyContextInRequestMessage(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "In reply to Alice (@alice): [document] Quoted part: budget-v3.pdf\n\n@boss here. Can you summarize it?", request.Message)
+			require.Equal(t, expectedLLMMessage("Can you summarize it?", "sender: @boss", "reply_to_author: Alice (@alice)", "reply_to_text: [document]", "quote_text: budget-v3.pdf", "message_origin: direct"), request.Message)
 			return &llmchat.Result{Text: "On it"}, nil
 		},
 	}
@@ -863,7 +877,7 @@ func TestChat_BuildsPhotoCaptionRequest(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "Telegram user 42 here. look at this", request.Message)
+			require.Equal(t, expectedLLMMessage("look at this", "sender: Telegram user 42", "message_origin: direct"), request.Message)
 			require.NotNil(t, request.Image)
 			require.Equal(t, "image/jpeg", request.Image.MIMEType)
 			require.Equal(t, "ZmFrZQ==", request.Image.DataBase64)
@@ -918,7 +932,7 @@ func TestChat_BuildsPhotoOnlyRequest(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "Telegram user 42 here.", request.Message)
+			require.Equal(t, expectedLLMMessage("", "sender: Telegram user 42", "message_origin: direct"), request.Message)
 			require.NotNil(t, request.Image)
 			require.Equal(t, "image/png", request.Image.MIMEType)
 			return &llmchat.Result{Text: "Image received"}, nil
@@ -1026,7 +1040,7 @@ func TestChat_FallsBackToCaptionWhenPhotoBuildFails(t *testing.T) {
 
 	responder := &testResponder{
 		replyFunc: func(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error) {
-			require.Equal(t, "Telegram user 42 here. look at this", request.Message)
+			require.Equal(t, expectedLLMMessage("look at this", "sender: Telegram user 42", "message_origin: direct"), request.Message)
 			require.Nil(t, request.Image)
 			return &llmchat.Result{Text: "Caption handled"}, nil
 		},
@@ -1152,7 +1166,7 @@ func TestClearContext_ReturnsClearError(t *testing.T) {
 	require.EqualError(t, err, "clearing chat context: boom")
 }
 
-func TestBuildCurrentMessageContext_DetectsForwardedMessageByHiddenSenderName(t *testing.T) {
+func TestBuildLLMMessage_DetectsForwardedMessageByHiddenSenderName(t *testing.T) {
 	var sender tele.User
 	sender.ID = 42
 	sender.Username = "forwarder"
@@ -1160,8 +1174,8 @@ func TestBuildCurrentMessageContext_DetectsForwardedMessageByHiddenSenderName(t 
 	var currentMessage tele.Message
 	currentMessage.OriginalSenderName = "Hidden Sender"
 
-	result := buildCurrentMessageContext(&sender, &currentMessage, "Look at this")
-	require.Equal(t, "Forwarded message from Hidden Sender. Shared by @forwarder. Look at this", result)
+	result := buildLLMMessage(&sender, &currentMessage, "Look at this")
+	require.Equal(t, expectedLLMMessage("Look at this", "sender: @forwarder", "message_origin: forwarded", "forward_origin: Hidden Sender"), result)
 }
 
 func TestResolveReplyAuthorName_PrefersForwardOriginOverForwarder(t *testing.T) {

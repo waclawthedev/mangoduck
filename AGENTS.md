@@ -22,6 +22,7 @@
 # Important
 - CLAUDE.md and AGENTS.md must always be kept in sync — any change to one must be applied to the other
 - Always run the relevant tests after making changes
+- Always run `make lint` after making changes
 - README.md must always be kept up to date when user flows, roles, statuses, commands, or admin actions change
 - README.md always follows the real code behavior, not the other way around
 - Access control is managed only per Telegram `chat_id`; admins are defined only in YAML under `admin.tg_ids` and are used for chat-management flows, not for cron task permissions
