@@ -17,8 +17,16 @@ type telegramContext struct {
 	senderChat    string
 }
 
+var structuredPromptMarkerEscaper = strings.NewReplacer(
+	`\\`, `\\\\`,
+	"[telegram-context]", `\[telegram-context]`,
+	"[/telegram-context]", `\[/telegram-context]`,
+	"[user-message]", `\[user-message]`,
+	"[/user-message]", `\[/user-message]`,
+)
+
 func buildLLMMessage(sender *tele.User, currentMessage *tele.Message, message string) string {
-	message = strings.TrimSpace(message)
+	message = escapeStructuredPromptBlock(strings.TrimSpace(message))
 
 	context := buildTelegramContext(sender, currentMessage)
 
@@ -64,28 +72,39 @@ func (c telegramContext) render() string {
 	lines := make([]string, 0, 7)
 
 	if c.senderName != "" {
-		lines = append(lines, "sender: "+c.senderName)
+		lines = append(lines, "sender: "+escapeStructuredPromptField(c.senderName))
 	}
 	if c.replyAuthor != "" {
-		lines = append(lines, "reply_to_author: "+c.replyAuthor)
+		lines = append(lines, "reply_to_author: "+escapeStructuredPromptField(c.replyAuthor))
 	}
 	if c.replyText != "" {
-		lines = append(lines, "reply_to_text: "+c.replyText)
+		lines = append(lines, "reply_to_text: "+escapeStructuredPromptField(c.replyText))
 	}
 	if c.quoteText != "" {
-		lines = append(lines, "quote_text: "+c.quoteText)
+		lines = append(lines, "quote_text: "+escapeStructuredPromptField(c.quoteText))
 	}
 	if c.messageOrigin != "" {
-		lines = append(lines, "message_origin: "+c.messageOrigin)
+		lines = append(lines, "message_origin: "+escapeStructuredPromptField(c.messageOrigin))
 	}
 	if c.forwardOrigin != "" {
-		lines = append(lines, "forward_origin: "+c.forwardOrigin)
+		lines = append(lines, "forward_origin: "+escapeStructuredPromptField(c.forwardOrigin))
 	}
 	if c.senderChat != "" {
-		lines = append(lines, "sender_chat: "+c.senderChat)
+		lines = append(lines, "sender_chat: "+escapeStructuredPromptField(c.senderChat))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func escapeStructuredPromptBlock(text string) string {
+	return structuredPromptMarkerEscaper.Replace(strings.TrimSpace(text))
+}
+
+func escapeStructuredPromptField(text string) string {
+	text = escapeStructuredPromptBlock(text)
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return strings.ReplaceAll(text, "\n", `\n`)
 }
 
 func resolveCurrentMessageOrigin(message *tele.Message) (string, string, string) {
