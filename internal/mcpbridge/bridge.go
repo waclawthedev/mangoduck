@@ -483,56 +483,97 @@ func flattenCallToolResult(result *mcp.CallToolResult) (string, error) {
 		return "", nil
 	}
 
-	payload, err := json.Marshal(result)
+	raw, err := decodeCallToolResult(result)
 	if err != nil {
 		return "", err
 	}
 
-	var raw struct {
-		Content           []json.RawMessage `json:"content"`
-		StructuredContent any               `json:"structuredContent"`
-		IsError           bool              `json:"isError"`
-	}
-	err = json.Unmarshal(payload, &raw)
+	text, err := flattenCallToolContent(raw.Content, raw.StructuredContent)
 	if err != nil {
 		return "", err
 	}
-
-	var builder strings.Builder
-
-	for _, item := range raw.Content {
-		text, err := flattenContentItem(item)
-		if err != nil {
-			return "", err
-		}
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		if builder.Len() > 0 {
-			builder.WriteString("\n")
-		}
-		builder.WriteString(text)
-	}
-
-	if raw.StructuredContent != nil {
-		structured, err := json.Marshal(raw.StructuredContent)
-		if err != nil {
-			return "", err
-		}
-		if len(bytes.TrimSpace(structured)) > 0 && string(structured) != "null" {
-			if builder.Len() > 0 {
-				builder.WriteString("\n")
-			}
-			builder.Write(structured)
-		}
-	}
-
-	text := strings.TrimSpace(builder.String())
 	if raw.IsError {
 		return formatToolError(text), nil
 	}
 
 	return text, nil
+}
+
+type flattenedCallToolResult struct {
+	Content           []json.RawMessage `json:"content"`
+	StructuredContent any               `json:"structuredContent"`
+	IsError           bool              `json:"isError"`
+}
+
+func decodeCallToolResult(result *mcp.CallToolResult) (*flattenedCallToolResult, error) {
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw flattenedCallToolResult
+	err = json.Unmarshal(payload, &raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return &raw, nil
+}
+
+func flattenCallToolContent(content []json.RawMessage, structuredContent any) (string, error) {
+	var builder strings.Builder
+
+	err := appendFlattenedContent(&builder, content)
+	if err != nil {
+		return "", err
+	}
+
+	err = appendStructuredContent(&builder, structuredContent)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(builder.String()), nil
+}
+
+func appendFlattenedContent(builder *strings.Builder, content []json.RawMessage) error {
+	for _, item := range content {
+		text, err := flattenContentItem(item)
+		if err != nil {
+			return err
+		}
+		appendFlattenedLine(builder, text)
+	}
+
+	return nil
+}
+
+func appendStructuredContent(builder *strings.Builder, structuredContent any) error {
+	if structuredContent == nil {
+		return nil
+	}
+
+	structured, err := json.Marshal(structuredContent)
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(structured)) == 0 || string(structured) == "null" {
+		return nil
+	}
+
+	appendFlattenedLine(builder, string(structured))
+	return nil
+}
+
+func appendFlattenedLine(builder *strings.Builder, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if builder.Len() > 0 {
+		builder.WriteString("\n")
+	}
+	builder.WriteString(text)
 }
 
 func flattenContentItem(raw json.RawMessage) (string, error) {

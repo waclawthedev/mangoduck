@@ -100,32 +100,55 @@ func ToggleChatStatus(cfg config.Config, chatsRepo Repository, approvalNotifier 
 			return err
 		}
 
-		targetChat, err := chatsRepo.GetByTGID(context.Background(), tgID)
+		targetChat, wasInactive, err := updateTargetChatStatus(chatsRepo, tgID, status)
 		if err != nil {
 			if errors.Is(err, repo.ErrChatNotFound) {
 				return c.Respond(&tele.CallbackResponse{Text: "chat not found", ShowAlert: true})
 			}
 
-			return fmt.Errorf("getting target chat: %w", err)
+			return err
 		}
 
-		err = chatsRepo.UpdateStatus(context.Background(), tgID, status)
+		err = notifyChatApproved(approvalNotifier, targetChat, wasInactive, status)
 		if err != nil {
-			return fmt.Errorf("updating chat status: %w", err)
-		}
-
-		wasInactive := targetChat.Status == repo.ChatStatusInactive
-		targetChat.Status = status
-
-		if wasInactive && status == repo.ChatStatusActive && approvalNotifier != nil {
-			err = approvalNotifier.NotifyApproved(targetChat)
-			if err != nil {
-				return fmt.Errorf("sending approval notification: %w", err)
-			}
+			return err
 		}
 
 		return editChatsPanel(c, chatsRepo, currentPanelState)
 	}
+}
+
+func updateTargetChatStatus(chatsRepo Repository, tgID int64, status repo.ChatStatus) (*repo.Chat, bool, error) {
+	targetChat, err := chatsRepo.GetByTGID(context.Background(), tgID)
+	if err != nil {
+		return nil, false, fmt.Errorf("getting target chat: %w", err)
+	}
+
+	wasInactive := targetChat.Status == repo.ChatStatusInactive
+
+	err = chatsRepo.UpdateStatus(context.Background(), tgID, status)
+	if err != nil {
+		return nil, false, fmt.Errorf("updating chat status: %w", err)
+	}
+	targetChat.Status = status
+
+	return targetChat, wasInactive, nil
+}
+
+func notifyChatApproved(approvalNotifier ApprovalNotifier, targetChat *repo.Chat, wasInactive bool, status repo.ChatStatus) error {
+	if approvalNotifier == nil || targetChat == nil {
+		return nil
+	}
+	if !wasInactive || status != repo.ChatStatusActive {
+		return nil
+	}
+
+	err := approvalNotifier.NotifyApproved(targetChat)
+	if err != nil {
+		return fmt.Errorf("sending approval notification: %w", err)
+	}
+
+	return nil
 }
 
 func ensureAdminPanelAccess(c tele.Context, cfg config.Config) (bool, error) {

@@ -171,78 +171,24 @@ func buildConfig(parsed *rawConfig) (Config, error) {
 
 	var cfg Config
 
-	if parsed.Telegram != nil {
-		cfg.TelegramToken = strings.TrimSpace(parsed.Telegram.Token)
+	applyConfigDefaults(&cfg)
 
-		timeout, err := parseDurationWithDefault(parsed.Telegram.PollTimeout, defaultPollTimeout, "telegram.poll_timeout")
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.PollTimeout = timeout
+	err := applyTelegramConfig(&cfg, parsed.Telegram)
+	if err != nil {
+		return Config{}, err
 	}
 
-	if parsed.Admin != nil {
-		cfg.AdminTGIDs = normalizeAdminTGIDs(parsed.Admin.TGIDs, parsed.Admin.TGID)
-		if len(cfg.AdminTGIDs) > 0 {
-			cfg.AdminTGID = cfg.AdminTGIDs[0]
-		}
+	applyAdminConfig(&cfg, parsed.Admin)
+	applyDatabaseConfig(&cfg, parsed.Database)
+
+	err = applyResponsesConfig(&cfg, parsed.Responses)
+	if err != nil {
+		return Config{}, err
 	}
 
-	cfg.DatabasePath = defaultDBPath
-	if parsed.Database != nil && strings.TrimSpace(parsed.Database.Path) != "" {
-		cfg.DatabasePath = strings.TrimSpace(parsed.Database.Path)
-	}
-
-	if cfg.PollTimeout == 0 {
-		cfg.PollTimeout = defaultPollTimeout
-	}
-	cfg.ResponsesTimeout = defaultResponsesTimeout
-	cfg.OpenAIWebSearchBaseURL = defaultOpenAIWebSearchBaseURL
-	cfg.OpenAIWebSearchModel = defaultOpenAIWebSearchModel
-	cfg.OpenAIWebSearchTimeout = defaultResponsesTimeout
-	cfg.EnableOpenAIWebSearch = boolPtr(true)
-	cfg.EnableXSearch = boolPtr(true)
-	cfg.XAITimeout = defaultResponsesTimeout
-
-	if parsed.Responses != nil {
-		cfg.PortkeyBaseURL = strings.TrimSpace(parsed.Responses.BaseURL)
-		cfg.PortkeyProvider = strings.TrimSpace(parsed.Responses.Provider)
-		cfg.PortkeyProviderAPIKey = strings.TrimSpace(parsed.Responses.ProviderAPIKey)
-		cfg.MainModel = strings.TrimSpace(parsed.Responses.Model)
-
-		timeout, err := parseDurationWithDefault(parsed.Responses.Timeout, defaultResponsesTimeout, "responses.timeout")
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.ResponsesTimeout = timeout
-	}
-
-	if parsed.BuiltITTools != nil {
-		if parsed.BuiltITTools.WebSearch != nil {
-			cfg.EnableOpenAIWebSearch = boolPtr(boolOrDefault(parsed.BuiltITTools.WebSearch.Enabled, true))
-			cfg.OpenAIWebSearchAPIKey = strings.TrimSpace(parsed.BuiltITTools.WebSearch.APIKey)
-			cfg.OpenAIWebSearchBaseURL = strings.TrimSpace(parsed.BuiltITTools.WebSearch.BaseURL)
-			cfg.OpenAIWebSearchModel = strings.TrimSpace(parsed.BuiltITTools.WebSearch.Model)
-
-			timeout, err := parseDurationWithDefault(parsed.BuiltITTools.WebSearch.Timeout, defaultResponsesTimeout, "built_it_tools.web_search.timeout")
-			if err != nil {
-				return Config{}, err
-			}
-			cfg.OpenAIWebSearchTimeout = timeout
-		}
-
-		if parsed.BuiltITTools.XSearch != nil {
-			cfg.EnableXSearch = boolPtr(boolOrDefault(parsed.BuiltITTools.XSearch.Enabled, true))
-			cfg.XAIAPIKey = strings.TrimSpace(parsed.BuiltITTools.XSearch.APIKey)
-			cfg.XAIBaseURL = strings.TrimSpace(parsed.BuiltITTools.XSearch.BaseURL)
-			cfg.XAIModel = strings.TrimSpace(parsed.BuiltITTools.XSearch.Model)
-
-			timeout, err := parseDurationWithDefault(parsed.BuiltITTools.XSearch.Timeout, defaultResponsesTimeout, "built_it_tools.x_search.timeout")
-			if err != nil {
-				return Config{}, err
-			}
-			cfg.XAITimeout = timeout
-		}
+	err = applyBuiltInToolsConfig(&cfg, parsed.BuiltITTools)
+	if err != nil {
+		return Config{}, err
 	}
 
 	mcpConfig, err := buildMCPConfig(parsed.MCP)
@@ -263,73 +209,219 @@ func buildMCPConfig(parsed *mcpFileConfig) (*MCPConfig, error) {
 	cfg.Servers = make([]*MCPServer, 0, len(parsed.Servers))
 
 	for index, server := range parsed.Servers {
-		if server == nil {
-			return nil, fmt.Errorf("mcp.servers[%d] is required", index)
+		entry, err := buildMCPServer(index, server)
+		if err != nil {
+			return nil, err
 		}
-
-		var entry MCPServer
-		entry.Name = strings.TrimSpace(server.Name)
-		entry.Transport = strings.TrimSpace(server.Transport)
-		if server.HTTP != nil {
-			var httpEntry MCPHTTPServer
-			httpEntry.URL = strings.TrimSpace(server.HTTP.URL)
-			httpEntry.AuthBearer = strings.TrimSpace(server.HTTP.AuthBearer)
-			if len(server.HTTP.Headers) > 0 {
-				httpEntry.Headers = make(map[string]string, len(server.HTTP.Headers))
-				for key, value := range server.HTTP.Headers {
-					httpEntry.Headers[strings.TrimSpace(key)] = strings.TrimSpace(value)
-				}
-			}
-			entry.HTTP = &httpEntry
-		}
-		if server.Stdio != nil {
-			var stdioEntry MCPStdioServer
-			stdioEntry.Command = strings.TrimSpace(server.Stdio.Command)
-			stdioEntry.CWD = strings.TrimSpace(server.Stdio.CWD)
-			if len(server.Stdio.Args) > 0 {
-				stdioEntry.Args = make([]string, 0, len(server.Stdio.Args))
-				for _, value := range server.Stdio.Args {
-					stdioEntry.Args = append(stdioEntry.Args, strings.TrimSpace(value))
-				}
-			}
-			if len(server.Stdio.Env) > 0 {
-				stdioEntry.Env = make(map[string]string, len(server.Stdio.Env))
-				for key, value := range server.Stdio.Env {
-					stdioEntry.Env[strings.TrimSpace(key)] = strings.TrimSpace(value)
-				}
-			}
-			entry.Stdio = &stdioEntry
-		}
-
-		if server.Enabled == nil {
-			entry.Enabled = true
-		} else {
-			entry.Enabled = *server.Enabled
-		}
-
-		if entry.Name == "" {
-			return nil, fmt.Errorf("mcp.servers[%d].name is required", index)
-		}
-		if entry.Transport == "" {
-			return nil, fmt.Errorf("mcp.servers[%d].transport is required", index)
-		}
-		switch entry.Transport {
-		case "streamable_http":
-			if entry.HTTP == nil || entry.HTTP.URL == "" {
-				return nil, fmt.Errorf("mcp.servers[%d].http.url is required", index)
-			}
-		case "stdio":
-			if entry.Stdio == nil || entry.Stdio.Command == "" {
-				return nil, fmt.Errorf("mcp.servers[%d].stdio.command is required", index)
-			}
-		default:
-			return nil, fmt.Errorf("mcp.servers[%d].transport %q is not supported", index, entry.Transport)
-		}
-
 		cfg.Servers = append(cfg.Servers, &entry)
 	}
 
 	return &cfg, nil
+}
+
+func applyConfigDefaults(cfg *Config) {
+	cfg.DatabasePath = defaultDBPath
+	cfg.PollTimeout = defaultPollTimeout
+	cfg.ResponsesTimeout = defaultResponsesTimeout
+	cfg.OpenAIWebSearchBaseURL = defaultOpenAIWebSearchBaseURL
+	cfg.OpenAIWebSearchModel = defaultOpenAIWebSearchModel
+	cfg.OpenAIWebSearchTimeout = defaultResponsesTimeout
+	cfg.EnableOpenAIWebSearch = boolPtr(true)
+	cfg.EnableXSearch = boolPtr(true)
+	cfg.XAITimeout = defaultResponsesTimeout
+}
+
+func applyTelegramConfig(cfg *Config, parsed *telegramConfig) error {
+	if parsed == nil {
+		return nil
+	}
+
+	cfg.TelegramToken = strings.TrimSpace(parsed.Token)
+
+	timeout, err := parseDurationWithDefault(parsed.PollTimeout, defaultPollTimeout, "telegram.poll_timeout")
+	if err != nil {
+		return err
+	}
+	cfg.PollTimeout = timeout
+
+	return nil
+}
+
+func applyAdminConfig(cfg *Config, parsed *adminConfig) {
+	if parsed == nil {
+		return
+	}
+
+	cfg.AdminTGIDs = normalizeAdminTGIDs(parsed.TGIDs, parsed.TGID)
+	if len(cfg.AdminTGIDs) > 0 {
+		cfg.AdminTGID = cfg.AdminTGIDs[0]
+	}
+}
+
+func applyDatabaseConfig(cfg *Config, parsed *databaseConfig) {
+	if parsed == nil {
+		return
+	}
+
+	path := strings.TrimSpace(parsed.Path)
+	if path != "" {
+		cfg.DatabasePath = path
+	}
+}
+
+func applyResponsesConfig(cfg *Config, parsed *responsesConfig) error {
+	if parsed == nil {
+		return nil
+	}
+
+	cfg.PortkeyBaseURL = strings.TrimSpace(parsed.BaseURL)
+	cfg.PortkeyProvider = strings.TrimSpace(parsed.Provider)
+	cfg.PortkeyProviderAPIKey = strings.TrimSpace(parsed.ProviderAPIKey)
+	cfg.MainModel = strings.TrimSpace(parsed.Model)
+
+	timeout, err := parseDurationWithDefault(parsed.Timeout, defaultResponsesTimeout, "responses.timeout")
+	if err != nil {
+		return err
+	}
+	cfg.ResponsesTimeout = timeout
+
+	return nil
+}
+
+func applyBuiltInToolsConfig(cfg *Config, parsed *builtITToolsConfig) error {
+	if parsed == nil {
+		return nil
+	}
+
+	err := applyWebSearchConfig(cfg, parsed.WebSearch)
+	if err != nil {
+		return err
+	}
+
+	return applyXSearchConfig(cfg, parsed.XSearch)
+}
+
+func applyWebSearchConfig(cfg *Config, parsed *webSearchConfig) error {
+	if parsed == nil {
+		return nil
+	}
+
+	cfg.EnableOpenAIWebSearch = boolPtr(boolOrDefault(parsed.Enabled, true))
+	cfg.OpenAIWebSearchAPIKey = strings.TrimSpace(parsed.APIKey)
+	cfg.OpenAIWebSearchBaseURL = strings.TrimSpace(parsed.BaseURL)
+	cfg.OpenAIWebSearchModel = strings.TrimSpace(parsed.Model)
+
+	timeout, err := parseDurationWithDefault(parsed.Timeout, defaultResponsesTimeout, "built_it_tools.web_search.timeout")
+	if err != nil {
+		return err
+	}
+	cfg.OpenAIWebSearchTimeout = timeout
+
+	return nil
+}
+
+func applyXSearchConfig(cfg *Config, parsed *xSearchConfig) error {
+	if parsed == nil {
+		return nil
+	}
+
+	cfg.EnableXSearch = boolPtr(boolOrDefault(parsed.Enabled, true))
+	cfg.XAIAPIKey = strings.TrimSpace(parsed.APIKey)
+	cfg.XAIBaseURL = strings.TrimSpace(parsed.BaseURL)
+	cfg.XAIModel = strings.TrimSpace(parsed.Model)
+
+	timeout, err := parseDurationWithDefault(parsed.Timeout, defaultResponsesTimeout, "built_it_tools.x_search.timeout")
+	if err != nil {
+		return err
+	}
+	cfg.XAITimeout = timeout
+
+	return nil
+}
+
+func buildMCPServer(index int, server *mcpServerConfig) (MCPServer, error) {
+	if server == nil {
+		return MCPServer{}, fmt.Errorf("mcp.servers[%d] is required", index)
+	}
+
+	var entry MCPServer
+	entry.Name = strings.TrimSpace(server.Name)
+	entry.Transport = strings.TrimSpace(server.Transport)
+	entry.Enabled = boolOrDefault(server.Enabled, true)
+	entry.HTTP = buildMCPHTTPServer(server.HTTP)
+	entry.Stdio = buildMCPStdioServer(server.Stdio)
+
+	if err := validateMCPServer(index, &entry); err != nil {
+		return MCPServer{}, err
+	}
+
+	return entry, nil
+}
+
+func buildMCPHTTPServer(parsed *mcpHTTPConfig) *MCPHTTPServer {
+	if parsed == nil {
+		return nil
+	}
+
+	var entry MCPHTTPServer
+	entry.URL = strings.TrimSpace(parsed.URL)
+	entry.AuthBearer = strings.TrimSpace(parsed.AuthBearer)
+	if len(parsed.Headers) > 0 {
+		entry.Headers = make(map[string]string, len(parsed.Headers))
+		for key, value := range parsed.Headers {
+			entry.Headers[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+
+	return &entry
+}
+
+func buildMCPStdioServer(parsed *mcpStdioConfig) *MCPStdioServer {
+	if parsed == nil {
+		return nil
+	}
+
+	var entry MCPStdioServer
+	entry.Command = strings.TrimSpace(parsed.Command)
+	entry.CWD = strings.TrimSpace(parsed.CWD)
+	if len(parsed.Args) > 0 {
+		entry.Args = make([]string, 0, len(parsed.Args))
+		for _, value := range parsed.Args {
+			entry.Args = append(entry.Args, strings.TrimSpace(value))
+		}
+	}
+	if len(parsed.Env) > 0 {
+		entry.Env = make(map[string]string, len(parsed.Env))
+		for key, value := range parsed.Env {
+			entry.Env[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+
+	return &entry
+}
+
+func validateMCPServer(index int, entry *MCPServer) error {
+	if entry.Name == "" {
+		return fmt.Errorf("mcp.servers[%d].name is required", index)
+	}
+	if entry.Transport == "" {
+		return fmt.Errorf("mcp.servers[%d].transport is required", index)
+	}
+
+	switch entry.Transport {
+	case "streamable_http":
+		if entry.HTTP == nil || entry.HTTP.URL == "" {
+			return fmt.Errorf("mcp.servers[%d].http.url is required", index)
+		}
+	case "stdio":
+		if entry.Stdio == nil || entry.Stdio.Command == "" {
+			return fmt.Errorf("mcp.servers[%d].stdio.command is required", index)
+		}
+	default:
+		return fmt.Errorf("mcp.servers[%d].transport %q is not supported", index, entry.Transport)
+	}
+
+	return nil
 }
 
 func parseDurationWithDefault(raw string, fallback time.Duration, field string) (time.Duration, error) {
@@ -413,11 +505,9 @@ func (c Config) Validate() error {
 		return errors.New("admin telegram IDs are not set")
 	}
 
-	if strings.TrimSpace(c.DatabasePath) == "" {
-		return errors.New("database path is empty")
-	}
-	if strings.Contains(c.DatabasePath, "?") || strings.Contains(c.DatabasePath, "#") || strings.HasPrefix(c.DatabasePath, "file:") {
-		return errors.New("database path must be a sqlite file path, not a URI")
+	err := validateDatabasePath(c.DatabasePath)
+	if err != nil {
+		return err
 	}
 
 	if c.PollTimeout <= 0 {
@@ -428,24 +518,48 @@ func (c Config) Validate() error {
 		return fmt.Errorf("responses timeout must be positive, got %s", c.ResponsesTimeout)
 	}
 
-	if c.OpenAIWebSearchEnabled() {
-		if strings.TrimSpace(c.OpenAIWebSearchAPIKey) == "" {
-			return errors.New("openai web search api key is empty")
-		}
-
-		if c.OpenAIWebSearchTimeout <= 0 {
-			return fmt.Errorf("openai web search timeout must be positive, got %s", c.OpenAIWebSearchTimeout)
-		}
+	err = validateOpenAIWebSearchConfig(c)
+	if err != nil {
+		return err
 	}
 
-	if c.XSearchEnabled() {
-		if strings.TrimSpace(c.XAIAPIKey) == "" {
-			return errors.New("xai api key is empty")
-		}
+	return validateXSearchConfig(c)
+}
 
-		if c.XAITimeout <= 0 {
-			return fmt.Errorf("xai timeout must be positive, got %s", c.XAITimeout)
-		}
+func validateDatabasePath(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("database path is empty")
+	}
+	if strings.Contains(path, "?") || strings.Contains(path, "#") || strings.HasPrefix(path, "file:") {
+		return errors.New("database path must be a sqlite file path, not a URI")
+	}
+
+	return nil
+}
+
+func validateOpenAIWebSearchConfig(c Config) error {
+	if !c.OpenAIWebSearchEnabled() {
+		return nil
+	}
+	if strings.TrimSpace(c.OpenAIWebSearchAPIKey) == "" {
+		return errors.New("openai web search api key is empty")
+	}
+	if c.OpenAIWebSearchTimeout <= 0 {
+		return fmt.Errorf("openai web search timeout must be positive, got %s", c.OpenAIWebSearchTimeout)
+	}
+
+	return nil
+}
+
+func validateXSearchConfig(c Config) error {
+	if !c.XSearchEnabled() {
+		return nil
+	}
+	if strings.TrimSpace(c.XAIAPIKey) == "" {
+		return errors.New("xai api key is empty")
+	}
+	if c.XAITimeout <= 0 {
+		return fmt.Errorf("xai timeout must be positive, got %s", c.XAITimeout)
 	}
 
 	return nil

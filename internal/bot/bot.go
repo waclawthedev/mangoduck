@@ -36,47 +36,20 @@ type toolRuntimeFactoryAdapter struct {
 	bridge *mcpbridge.Bridge
 }
 
+type searchServices struct {
+	openAIWebSearchClient responses.ResponseCreator
+	webSearchService      *websearch.Service
+	xaiClient             responses.ResponseCreator
+	xSearchService        *searchx.Service
+}
+
 func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	logger = logging.WithComponent(logger, "bot")
 
-	b, err := tele.NewBot(tele.Settings{
-		Token: cfg.TelegramToken,
-		Poller: &tele.LongPoller{
-			Timeout: cfg.PollTimeout,
-		},
-		OnError: func(err error, c tele.Context) {
-			handlerLogger := logger.Named("telegram")
-			if c == nil {
-				handlerLogger.Error("telegram handler failed", zap.Error(err))
-				return
-			}
-
-			var chatID int64
-			chat := c.Chat()
-			if chat != nil {
-				chatID = chat.ID
-			}
-
-			var senderID int64
-			sender := c.Sender()
-			if sender != nil {
-				senderID = sender.ID
-			}
-
-			handlerLogger.Error(
-				"telegram handler failed",
-				zap.Error(err),
-				zap.Int64("chat_id", chatID),
-				zap.Int64("sender_id", senderID),
-				zap.String("text", strings.TrimSpace(c.Text())),
-			)
-
-			notifyTelegramHandlerError(handlerLogger, c, err)
-		},
-	})
+	b, err := createTelegramBot(cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -93,40 +66,9 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 		return nil, err
 	}
 
-	var openAIWebSearchClient responses.ResponseCreator
-	var webSearchService *websearch.Service
-	if cfg.OpenAIWebSearchEnabled() {
-		openAIWebSearchClient, err = openairesponses.NewClient(openairesponses.Config{
-			APIKey:  cfg.OpenAIWebSearchAPIKey,
-			BaseURL: cfg.OpenAIWebSearchBaseURL,
-			Timeout: cfg.OpenAIWebSearchTimeout,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		webSearchService, err = websearch.NewService(openAIWebSearchClient, cfg.OpenAIWebSearchModel, websearch.WithLogger(logger))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var xaiClient responses.ResponseCreator
-	var xSearchService *searchx.Service
-	if cfg.XSearchEnabled() {
-		xaiClient, err = xairesponses.NewClient(xairesponses.Config{
-			APIKey:  cfg.XAIAPIKey,
-			BaseURL: cfg.XAIBaseURL,
-			Timeout: cfg.XAITimeout,
-		}, xairesponses.WithLogger(logger))
-		if err != nil {
-			return nil, err
-		}
-
-		xSearchService, err = searchx.NewService(xaiClient, cfg.XAIModel, searchx.WithLogger(logger))
-		if err != nil {
-			return nil, err
-		}
+	services, err := initializeSearchServices(cfg, logger)
+	if err != nil {
+		return nil, err
 	}
 
 	chatsRepo := repo.NewChatsRepo(db)
@@ -143,7 +85,7 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 		return nil, err
 	}
 
-	err = runStartupPreflight(context.Background(), cfg, logger, responsesClient, xaiClient, openAIWebSearchClient, toolBridge)
+	err = runStartupPreflight(context.Background(), cfg, logger, responsesClient, services.xaiClient, services.openAIWebSearchClient, toolBridge)
 	if err != nil {
 		return nil, combineStartupError("startup preflight failed", err)
 	}
@@ -151,8 +93,8 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 	chatService, err := chat.NewService(
 		chat.Dependencies{
 			Client:          responsesClient,
-			XSearcher:       xSearchService,
-			WebSearcher:     webSearchService,
+			XSearcher:       services.xSearchService,
+			WebSearcher:     services.webSearchService,
 			HistoryStore:    inputsOutputsRepo,
 			CronTaskStore:   cronTasksRepo,
 			CronTaskManager: scheduler,
@@ -169,17 +111,7 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 	}
 	scheduler.SetExecutor(chatService)
 
-	err = commandSyncer.SyncDefaults()
-	if err != nil {
-		return nil, err
-	}
-
-	err = commandSyncer.SyncGroups()
-	if err != nil {
-		return nil, err
-	}
-
-	err = commandSyncer.SyncAdmins(cfg.AdminTGIDs)
+	err = syncBotCommands(commandSyncer, cfg.AdminTGIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +124,131 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 	runtime.logger = logger
 
 	return &runtime, nil
+}
+
+func createTelegramBot(cfg config.Config, logger *zap.Logger) (*tele.Bot, error) {
+	var settings tele.Settings
+	settings.Token = cfg.TelegramToken
+	settings.Poller = &tele.LongPoller{Timeout: cfg.PollTimeout}
+	settings.OnError = telegramErrorHandler(logger)
+
+	return tele.NewBot(settings)
+}
+
+func telegramErrorHandler(logger *zap.Logger) func(error, tele.Context) {
+	return func(err error, c tele.Context) {
+		handlerLogger := logger.Named("telegram")
+		if c == nil {
+			handlerLogger.Error("telegram handler failed", zap.Error(err))
+			return
+		}
+
+		handlerLogger.Error(
+			"telegram handler failed",
+			zap.Error(err),
+			zap.Int64("chat_id", chatIDFromContext(c)),
+			zap.Int64("sender_id", senderIDFromContext(c)),
+			zap.String("text", strings.TrimSpace(c.Text())),
+		)
+
+		notifyTelegramHandlerError(handlerLogger, c, err)
+	}
+}
+
+func chatIDFromContext(c tele.Context) int64 {
+	chat := c.Chat()
+	if chat == nil {
+		return 0
+	}
+
+	return chat.ID
+}
+
+func senderIDFromContext(c tele.Context) int64 {
+	sender := c.Sender()
+	if sender == nil {
+		return 0
+	}
+
+	return sender.ID
+}
+
+func initializeSearchServices(cfg config.Config, logger *zap.Logger) (*searchServices, error) {
+	var services searchServices
+
+	err := initializeOpenAIWebSearchService(&services, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	err = initializeXSearchService(&services, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	return &services, nil
+}
+
+func initializeOpenAIWebSearchService(services *searchServices, cfg config.Config, logger *zap.Logger) error {
+	if !cfg.OpenAIWebSearchEnabled() {
+		return nil
+	}
+
+	client, err := openairesponses.NewClient(openairesponses.Config{
+		APIKey:  cfg.OpenAIWebSearchAPIKey,
+		BaseURL: cfg.OpenAIWebSearchBaseURL,
+		Timeout: cfg.OpenAIWebSearchTimeout,
+	})
+	if err != nil {
+		return err
+	}
+
+	service, err := websearch.NewService(client, cfg.OpenAIWebSearchModel, websearch.WithLogger(logger))
+	if err != nil {
+		return err
+	}
+
+	services.openAIWebSearchClient = client
+	services.webSearchService = service
+	return nil
+}
+
+func initializeXSearchService(services *searchServices, cfg config.Config, logger *zap.Logger) error {
+	if !cfg.XSearchEnabled() {
+		return nil
+	}
+
+	client, err := xairesponses.NewClient(xairesponses.Config{
+		APIKey:  cfg.XAIAPIKey,
+		BaseURL: cfg.XAIBaseURL,
+		Timeout: cfg.XAITimeout,
+	}, xairesponses.WithLogger(logger))
+	if err != nil {
+		return err
+	}
+
+	service, err := searchx.NewService(client, cfg.XAIModel, searchx.WithLogger(logger))
+	if err != nil {
+		return err
+	}
+
+	services.xaiClient = client
+	services.xSearchService = service
+	return nil
+}
+
+func syncBotCommands(commandSyncer *CommandSyncer, adminTGIDs []int64) error {
+	err := commandSyncer.SyncDefaults()
+	if err != nil {
+		return err
+	}
+
+	err = commandSyncer.SyncGroups()
+	if err != nil {
+		return err
+	}
+
+	return commandSyncer.SyncAdmins(adminTGIDs)
 }
 
 func (r *Runtime) Start() {
