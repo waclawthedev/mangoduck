@@ -13,6 +13,8 @@ import (
 	"mangoduck/internal/llm/responses"
 )
 
+const testOpenAIWebSearchModel = "gpt-5.4-nano"
+
 type preflightResponsesClientStub struct {
 	err      error
 	requests []*responses.CreateResponseRequest
@@ -51,7 +53,7 @@ func TestRunStartupPreflightChecksResponsesXAIAndMCP(t *testing.T) {
 	var cfg config.Config
 	cfg.MainModel = "gpt-5"
 	cfg.XAIModel = "grok-4-fast-search"
-	cfg.OpenAIWebSearchModel = "gpt-5.4-nano"
+	cfg.OpenAIWebSearchModel = testOpenAIWebSearchModel
 	cfg.ResponsesTimeout = 3 * time.Second
 	cfg.XAITimeout = 4 * time.Second
 	cfg.OpenAIWebSearchTimeout = 5 * time.Second
@@ -70,7 +72,7 @@ func TestRunStartupPreflightChecksResponsesXAIAndMCP(t *testing.T) {
 	require.Equal(t, startupPreflightPrompt, xaiClient.requests[0].Input)
 
 	require.Len(t, openAIWebSearchClient.requests, 1)
-	require.Equal(t, "gpt-5.4-nano", openAIWebSearchClient.requests[0].Model)
+	require.Equal(t, testOpenAIWebSearchModel, openAIWebSearchClient.requests[0].Model)
 	require.Equal(t, startupPreflightPrompt, openAIWebSearchClient.requests[0].Input)
 
 	require.Equal(t, 1, mcpChecker.callCount)
@@ -112,7 +114,7 @@ func TestRunStartupPreflightUsesDefaultModels(t *testing.T) {
 	require.Equal(t, "grok-4-1-fast-reasoning", xaiClient.requests[0].Model)
 
 	require.Len(t, openAIWebSearchClient.requests, 1)
-	require.Equal(t, "gpt-5.4-nano", openAIWebSearchClient.requests[0].Model)
+	require.Equal(t, testOpenAIWebSearchModel, openAIWebSearchClient.requests[0].Model)
 }
 
 func TestRunStartupPreflightFailsFastOnResponsesAPI(t *testing.T) {

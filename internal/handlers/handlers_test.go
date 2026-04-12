@@ -16,6 +16,11 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
+const (
+	testModelReply = "Hello human"
+	testGroupTitle = "Mango Duck"
+)
+
 type chatsRepoStub struct {
 	getByTGIDFunc     func(ctx context.Context, tgID int64) (*repo.Chat, error)
 	listFunc          func(ctx context.Context) ([]*repo.Chat, error)
@@ -170,7 +175,7 @@ func TestChat_SendsModelReplyForActiveChat(t *testing.T) {
 	ctx.On("Text").Return("Hello bot")
 	ctx.On("Message").Return(&tele.Message{Text: "Hello bot"})
 	ctx.On("Notify", tele.Typing).Return(nil)
-	ctx.On("Send", "Hello human", []any{tele.ModeHTML}).Return(nil)
+	ctx.On("Send", testModelReply, []any{tele.ModeHTML}).Return(nil)
 
 	repoStub := &chatsRepoStub{
 		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
@@ -191,7 +196,7 @@ func TestChat_SendsModelReplyForActiveChat(t *testing.T) {
 			deadline, ok := ctx.Deadline()
 			assert.True(t, ok)
 			assert.WithinDuration(t, time.Now().Add(5*time.Second), deadline, time.Second)
-			return &chat.Result{Text: "Hello human"}, nil
+			return &chat.Result{Text: testModelReply}, nil
 		},
 	}
 
@@ -230,7 +235,7 @@ func TestChat_BlocksInactiveChat(t *testing.T) {
 	var currentChat tele.Chat
 	currentChat.ID = -1001
 	currentChat.Type = "group"
-	currentChat.Title = "Mango Duck"
+	currentChat.Title = testGroupTitle
 	ctx.On("Chat").Return(&currentChat)
 	ctx.On("Send", "wait for chat approval\nChat ID: -1001").Return(nil)
 
@@ -239,7 +244,7 @@ func TestChat_BlocksInactiveChat(t *testing.T) {
 			var chatRecord repo.Chat
 			chatRecord.TGID = tgID
 			chatRecord.Type = "group"
-			chatRecord.Title = "Mango Duck"
+			chatRecord.Title = testGroupTitle
 			chatRecord.Status = repo.ChatStatusInactive
 			return &chatRecord, nil
 		},
@@ -280,10 +285,10 @@ func TestChat_AllowsDirectReplyToBotWithoutMentionInGroup(t *testing.T) {
 	var currentChat tele.Chat
 	currentChat.ID = -1001
 	currentChat.Type = "group"
-	currentChat.Title = "Mango Duck"
+	currentChat.Title = testGroupTitle
 	ctx.On("Chat").Return(&currentChat)
 	ctx.On("Notify", tele.Typing).Return(nil)
-	ctx.On("Send", "Hello human", []any{tele.ModeHTML}).Return(nil)
+	ctx.On("Send", testModelReply, []any{tele.ModeHTML}).Return(nil)
 
 	repoStub := &chatsRepoStub{
 		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
@@ -298,7 +303,7 @@ func TestChat_AllowsDirectReplyToBotWithoutMentionInGroup(t *testing.T) {
 	responderStub := &chatResponderStub{
 		replyFunc: func(ctx context.Context, request *chat.Request) (*chat.Result, error) {
 			assert.Equal(t, "[telegram-context]\nsender: @boss\nreply_to_author: @mangoduck\nreply_to_text: Original bot answer\nmessage_origin: direct\n[/telegram-context]\n\n[user-message]\nhelp me\n[/user-message]", request.Message)
-			return &chat.Result{Text: "Hello human"}, nil
+			return &chat.Result{Text: testModelReply}, nil
 		},
 	}
 
@@ -322,7 +327,7 @@ func TestChats_SendsListForConfiguredAdmin(t *testing.T) {
 		listFunc: func(ctx context.Context) ([]*repo.Chat, error) {
 			var chatRecord repo.Chat
 			chatRecord.TGID = -1001
-			chatRecord.Title = "Mango Duck"
+			chatRecord.Title = testGroupTitle
 			chatRecord.Type = "group"
 			chatRecord.Status = repo.ChatStatusInactive
 			return []*repo.Chat{&chatRecord}, nil
@@ -346,7 +351,7 @@ func TestChats_BlocksAdminPanelOutsidePrivateChat(t *testing.T) {
 	var sender tele.User
 	sender.ID = 42
 	ctx.On("Sender").Return(&sender)
-	ctx.On("Chat").Return(&tele.Chat{ID: -1001, Type: "group", Title: "Mango Duck"})
+	ctx.On("Chat").Return(&tele.Chat{ID: -1001, Type: "group", Title: testGroupTitle})
 	ctx.On("Send", "Open this admin panel in a private chat with the bot.").Return(nil)
 
 	repoStub := &chatsRepoStub{
@@ -382,7 +387,7 @@ func TestToggleChatStatus_UpdatesStatusAndRefreshesMessage(t *testing.T) {
 		getByTGIDFunc: func(ctx context.Context, tgID int64) (*repo.Chat, error) {
 			var chatRecord repo.Chat
 			chatRecord.TGID = tgID
-			chatRecord.Title = "Mango Duck"
+			chatRecord.Title = testGroupTitle
 			chatRecord.Type = "group"
 			chatRecord.Status = repo.ChatStatusInactive
 			return &chatRecord, nil
@@ -390,7 +395,7 @@ func TestToggleChatStatus_UpdatesStatusAndRefreshesMessage(t *testing.T) {
 		listFunc: func(ctx context.Context) ([]*repo.Chat, error) {
 			var chatRecord repo.Chat
 			chatRecord.TGID = -1001
-			chatRecord.Title = "Mango Duck"
+			chatRecord.Title = testGroupTitle
 			chatRecord.Type = "group"
 			chatRecord.Status = repo.ChatStatusActive
 			return []*repo.Chat{&chatRecord}, nil

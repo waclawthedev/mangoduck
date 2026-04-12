@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testTelegramToken = "telegram-token"
+
 func boolPtr(value bool) *bool {
 	return &value
 }
@@ -19,9 +22,9 @@ func TestLoadReadsValuesFromConfigYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
   poll_timeout: "12s"
 
 admin:
@@ -63,12 +66,12 @@ mcp:
         auth_bearer: "test-token"
         headers:
           x-team: "backend"
-`)
+`, testTelegramToken))
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
 
-	require.Equal(t, "telegram-token", cfg.TelegramToken)
+	require.Equal(t, testTelegramToken, cfg.TelegramToken)
 	require.Equal(t, []int64{42, 84}, cfg.AdminTGIDs)
 	require.Equal(t, int64(42), cfg.AdminTGID)
 	require.Equal(t, "data.db", cfg.DatabasePath)
@@ -102,14 +105,14 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
 
 admin:
   tg_ids:
     - 42
-`)
+`, testTelegramToken))
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -127,7 +130,7 @@ admin:
 
 func TestValidateRejectsInMemoryDatabasePath(t *testing.T) {
 	var cfg config.Config
-	cfg.TelegramToken = "telegram-token"
+	cfg.TelegramToken = testTelegramToken
 	cfg.AdminTGIDs = []int64{42}
 	cfg.DatabasePath = "file:mangoduck.db?cache=shared"
 	cfg.PollTimeout = 10 * time.Second
@@ -142,7 +145,7 @@ func TestValidateRejectsInMemoryDatabasePath(t *testing.T) {
 
 func TestValidateRejectsQueryStringInDatabasePath(t *testing.T) {
 	var cfg config.Config
-	cfg.TelegramToken = "telegram-token"
+	cfg.TelegramToken = testTelegramToken
 	cfg.AdminTGIDs = []int64{42}
 	cfg.DatabasePath = "mangoduck.db?cache=shared"
 	cfg.PollTimeout = 10 * time.Second
@@ -159,9 +162,9 @@ func TestLoadAllowsDisablingBuiltInSearchTools(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
 
 admin:
   tg_ids:
@@ -172,7 +175,7 @@ built_it_tools:
     enabled: false
   x_search:
     enabled: false
-`)
+`, testTelegramToken))
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -184,15 +187,15 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
   extra: "oops"
 
 admin:
   tg_ids:
     - 42
-`)
+`, testTelegramToken))
 
 	_, err := config.Load()
 	require.Error(t, err)
@@ -203,9 +206,9 @@ func TestLoadRejectsInvalidDuration(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
 
 admin:
   tg_ids:
@@ -213,7 +216,7 @@ admin:
 
 responses:
   timeout: "later"
-`)
+`, testTelegramToken))
 
 	_, err := config.Load()
 	require.Error(t, err)
@@ -224,9 +227,9 @@ func TestLoadRejectsInvalidMCPServer(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
 
 admin:
   tg_ids:
@@ -238,7 +241,7 @@ mcp:
       transport: "streamable_http"
       http:
         url: "https://example.com/mcp"
-`)
+`, testTelegramToken))
 
 	_, err := config.Load()
 	require.Error(t, err)
@@ -249,9 +252,9 @@ func TestLoadReadsValidStdioMCPServer(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
 
 admin:
   tg_ids:
@@ -272,7 +275,7 @@ mcp:
         env:
           HOME: "/tmp/mcp-home"
           LOG_LEVEL: "debug"
-`)
+`, testTelegramToken))
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -291,9 +294,9 @@ func TestLoadRejectsStdioServerWithoutCommand(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
 
 admin:
   tg_ids:
@@ -306,7 +309,7 @@ mcp:
       stdio:
         args:
           - "server"
-`)
+`, testTelegramToken))
 
 	_, err := config.Load()
 	require.Error(t, err)
@@ -317,9 +320,9 @@ func TestLoadRejectsHTTPServerWithoutURL(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	writeConfigFile(t, tempDir, `
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
 telegram:
-  token: "telegram-token"
+  token: "%s"
 
 admin:
   tg_ids:
@@ -331,7 +334,7 @@ mcp:
       transport: "streamable_http"
       http:
         auth_bearer: "test-token"
-`)
+`, testTelegramToken))
 
 	_, err := config.Load()
 	require.Error(t, err)
