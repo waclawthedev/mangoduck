@@ -1,12 +1,20 @@
 <p align="center">
-  <img src="./logo.png" alt="Mangoduck logo" width="380">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="./logo.png">
+    <img src="./logo.png" alt="Mangoduck logo" width="380">
+  </picture>
 </p>
-
 <h1 align="center">Mangoduck</h1>
 
 <p align="center">
   Agentic Telegram bot for private chats and group chats, with OpenAI Responses API, search tools, MCP integration, chat-scoped memory, and scheduled tasks.
 </p>
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=waclawthedev_mangoduck&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=waclawthedev_mangoduck)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=waclawthedev_mangoduck&metric=bugs)](https://sonarcloud.io/summary/new_code?id=waclawthedev_mangoduck)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=waclawthedev_mangoduck&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=waclawthedev_mangoduck)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=waclawthedev_mangoduck&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=waclawthedev_mangoduck)
+[![codecov](https://codecov.io/gh/waclawthedev/mangoduck/graph/badge.svg?token=1XGKAEU58Q)](https://codecov.io/gh/waclawthedev/mangoduck)
 
 > [!WARNING]
 > This project is provided for research and experimental purposes only. It may contain critical bugs, security flaws, or other defects, and you run, use, deploy, and rely on it entirely at your own risk.
