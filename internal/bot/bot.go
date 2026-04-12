@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 
 	"go.uber.org/zap"
@@ -13,7 +14,6 @@ import (
 	"mangoduck/internal/llm/chat"
 	"mangoduck/internal/llm/responses"
 	openairesponses "mangoduck/internal/llm/responses/openai"
-	portkeyresponses "mangoduck/internal/llm/responses/portkey"
 	xairesponses "mangoduck/internal/llm/responses/xai"
 	"mangoduck/internal/llm/searchx"
 	"mangoduck/internal/llm/websearch"
@@ -56,12 +56,7 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 
 	commandSyncer := NewCommandSyncer(b)
 	approvalNotifier := NewChatApprovalNotifier(b)
-	responsesClient, err := portkeyresponses.NewClient(portkeyresponses.Config{
-		Provider:       cfg.PortkeyProvider,
-		ProviderAPIKey: cfg.PortkeyProviderAPIKey,
-		BaseURL:        cfg.PortkeyBaseURL,
-		Timeout:        cfg.ResponsesTimeout,
-	})
+	responsesClient, err := newResponsesClient(cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +119,23 @@ func New(cfg config.Config, db *sql.DB, logger *zap.Logger) (*Runtime, error) {
 	runtime.logger = logger
 
 	return &runtime, nil
+}
+
+func newResponsesClient(cfg config.Config, logger *zap.Logger) (responses.ResponseCreator, error) {
+	switch strings.TrimSpace(cfg.ResponsesProvider) {
+	case "openai":
+		return openairesponses.NewClient(openairesponses.Config{
+			APIKey:  cfg.ResponsesProviderAPIKey,
+			Timeout: cfg.ResponsesTimeout,
+		}, openairesponses.WithLogger(logger))
+	case "xai":
+		return xairesponses.NewClient(xairesponses.Config{
+			APIKey:  cfg.ResponsesProviderAPIKey,
+			Timeout: cfg.ResponsesTimeout,
+		}, xairesponses.WithLogger(logger))
+	default:
+		return nil, fmt.Errorf("responses provider %q is not supported", strings.TrimSpace(cfg.ResponsesProvider))
+	}
 }
 
 func createTelegramBot(cfg config.Config, logger *zap.Logger) (*tele.Bot, error) {

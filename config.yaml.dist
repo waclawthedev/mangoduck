@@ -10,7 +10,6 @@ database:
   path: "mangoduck.db"
 
 responses:
-  base_url: "http://127.0.0.1:8787"
   provider: "openai"
   provider_api_key: "replace-with-provider-api-key"
   model: "gpt-5.4-nano"
