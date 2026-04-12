@@ -131,6 +131,26 @@ func handleEndTag(builder *strings.Builder, stack *[]string, tagName string) {
 }
 
 func telegramTagSpec(tagName string, attrs map[string]string, insidePre bool) (*tagSpec, bool) {
+	if spec, ok := telegramSimpleTagSpec(tagName, attrs); ok {
+		return spec, true
+	}
+	if spec, ok := telegramLinkTagSpec(tagName, attrs); ok {
+		return spec, true
+	}
+	if spec, ok := telegramCodeTagSpec(tagName, attrs, insidePre); ok {
+		return spec, true
+	}
+	if spec, ok := telegramBlockTagSpec(tagName, attrs); ok {
+		return spec, true
+	}
+	if spec, ok := telegramSpecialTagSpec(tagName, attrs); ok {
+		return spec, true
+	}
+
+	return nil, false
+}
+
+func telegramSimpleTagSpec(tagName string, attrs map[string]string) (*tagSpec, bool) {
 	switch tagName {
 	case tagB, "strong":
 		return &tagSpec{name: tagB}, true
@@ -146,70 +166,109 @@ func telegramTagSpec(tagName string, attrs map[string]string, insidePre bool) (*
 		if strings.EqualFold(attrs[attrClass], tagSpoiler) {
 			return &tagSpec{name: tagSpoiler}, true
 		}
-	case tagA:
-		href := strings.TrimSpace(attrs[attrHref])
-		if href == "" {
-			return nil, false
-		}
-
-		var tag tagSpec
-		tag.name = tagA
-		tag.attrs = map[string]string{attrHref: href}
-		return &tag, true
-	case tagCode:
-		var tag tagSpec
-		tag.name = tagCode
-		if insidePre {
-			className := strings.TrimSpace(attrs[attrClass])
-			if strings.HasPrefix(strings.ToLower(className), "language-") {
-				tag.attrs = map[string]string{attrClass: className}
-			}
-		}
-
-		return &tag, true
-	case tagPre:
-		return &tagSpec{name: tagPre}, true
-	case tagBlockquote:
-		var tag tagSpec
-		tag.name = tagBlockquote
-		if _, expandable := attrs[attrExpandable]; expandable {
-			tag.attrs = map[string]string{attrExpandable: ""}
-		}
-
-		return &tag, true
-	case tagTGEmoji:
-		emojiID := strings.TrimSpace(attrs[attrEmojiID])
-		if emojiID == "" {
-			return nil, false
-		}
-
-		var tag tagSpec
-		tag.name = tagTGEmoji
-		tag.attrs = map[string]string{attrEmojiID: emojiID}
-		return &tag, true
-	case tagTGTime:
-		var tag tagSpec
-		tag.name = tagTGTime
-		tag.attrs = make(map[string]string)
-
-		unixValue := strings.TrimSpace(attrs[attrUnix])
-		if unixValue != "" {
-			tag.attrs[attrUnix] = unixValue
-		}
-
-		formatValue := strings.TrimSpace(attrs[attrFormat])
-		if formatValue != "" {
-			tag.attrs[attrFormat] = formatValue
-		}
-
-		if len(tag.attrs) == 0 {
-			return nil, false
-		}
-
-		return &tag, true
 	}
 
 	return nil, false
+}
+
+func telegramLinkTagSpec(tagName string, attrs map[string]string) (*tagSpec, bool) {
+	if tagName != tagA {
+		return nil, false
+	}
+
+	href := strings.TrimSpace(attrs[attrHref])
+	if href == "" {
+		return nil, false
+	}
+
+	var tag tagSpec
+	tag.name = tagA
+	tag.attrs = map[string]string{attrHref: href}
+	return &tag, true
+}
+
+func telegramCodeTagSpec(tagName string, attrs map[string]string, insidePre bool) (*tagSpec, bool) {
+	if tagName == tagPre {
+		return &tagSpec{name: tagPre}, true
+	}
+	if tagName != tagCode {
+		return nil, false
+	}
+
+	var tag tagSpec
+	tag.name = tagCode
+	if insidePre {
+		className := strings.TrimSpace(attrs[attrClass])
+		if strings.HasPrefix(strings.ToLower(className), "language-") {
+			tag.attrs = map[string]string{attrClass: className}
+		}
+	}
+
+	return &tag, true
+}
+
+func telegramBlockTagSpec(tagName string, attrs map[string]string) (*tagSpec, bool) {
+	if tagName != tagBlockquote {
+		return nil, false
+	}
+
+	var tag tagSpec
+	tag.name = tagBlockquote
+	if _, expandable := attrs[attrExpandable]; expandable {
+		tag.attrs = map[string]string{attrExpandable: ""}
+	}
+
+	return &tag, true
+}
+
+func telegramSpecialTagSpec(tagName string, attrs map[string]string) (*tagSpec, bool) {
+	switch tagName {
+	case tagTGEmoji:
+		return telegramEmojiTagSpec(attrs)
+	case tagTGTime:
+		return telegramTimeTagSpec(attrs)
+	default:
+		return nil, false
+	}
+}
+
+func telegramEmojiTagSpec(attrs map[string]string) (*tagSpec, bool) {
+	emojiID := strings.TrimSpace(attrs[attrEmojiID])
+	if emojiID == "" {
+		return nil, false
+	}
+
+	var tag tagSpec
+	tag.name = tagTGEmoji
+	tag.attrs = map[string]string{attrEmojiID: emojiID}
+	return &tag, true
+}
+
+func telegramTimeTagSpec(attrs map[string]string) (*tagSpec, bool) {
+	var tag tagSpec
+	tag.name = tagTGTime
+	tag.attrs = make(map[string]string)
+
+	addTrimmedTagAttr(tag.attrs, attrUnix, attrs[attrUnix])
+	addTrimmedTagAttr(tag.attrs, attrFormat, attrs[attrFormat])
+	if len(tag.attrs) == 0 {
+		return nil, false
+	}
+
+	return &tag, true
+}
+
+func addTrimmedTagAttr(dst map[string]string, key string, value string) {
+	if dst == nil {
+		return
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+
+	dst[key] = value
 }
 
 func canonicalEndTagName(tagName string) (string, bool) {

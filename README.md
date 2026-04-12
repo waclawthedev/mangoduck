@@ -38,7 +38,7 @@ The bot runs in an agentic loop on top of the Responses API, can call built-in t
 - Optional MCP integration for both `streamable_http` and local `stdio` servers.
 - Startup preflight that validates the main Responses API and, when enabled, the xAI search API, the OpenAI web search API, and enabled MCP servers before polling starts.
 - Scheduled prompts executed in the same agentic mode without replaying chat history.
-- Sanitized runtime errors are reported back into Telegram chats without exposing credentials.
+- Runtime errors are reported back into Telegram chats.
 
 ## How It Works
 
@@ -51,7 +51,7 @@ The bot runs in an agentic loop on top of the Responses API, can call built-in t
 7. The model may answer directly or call exactly one tool in a step.
 8. Tool results are stored locally as normalized items and fed back into the next model step.
 9. The final assistant response is sent back to the same Telegram chat as Telegram-compatible HTML.
-10. If a handler fails, the bot logs the full error server-side and sends a sanitized error summary back to Telegram.
+10. If a handler fails, the bot logs the error server-side and sends an error message back to Telegram.
 
 ## Commands
 
@@ -327,7 +327,3 @@ Enabled MCP servers are opened for a single run, translated into Responses API f
 - local `stdio` servers
 
 MCP tool names are exposed to the model with a server prefix such as `github__search_repositories`.
-
-## Project Status
-
-Mangoduck is structured like a small production-oriented bot service rather than a demo app. The repository already includes tests across config loading, bot behavior, repositories, chat orchestration, MCP bridging, cron jobs, and Telegram handlers.

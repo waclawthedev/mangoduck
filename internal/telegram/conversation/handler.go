@@ -499,7 +499,9 @@ func SetPlaceholderHooks(sender func(c tele.Context, text string) (*tele.Message
 func startTyping(c tele.Context) func() {
 	err := c.Notify(tele.Typing)
 	if err != nil {
-		return func() {}
+		return func() {
+			// No-op: typing notifications were not started, so there is nothing to stop.
+		}
 	}
 
 	stopCh := make(chan struct{})

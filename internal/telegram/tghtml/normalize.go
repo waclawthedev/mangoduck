@@ -27,39 +27,67 @@ func Normalize(text string) string {
 	tokenizer := xhtml.NewTokenizer(strings.NewReader(text))
 	for {
 		tokenType := tokenizer.Next()
-		switch tokenType {
-		case xhtml.ErrorToken:
-			if errors.Is(tokenizer.Err(), io.EOF) {
-				return builder.String()
-			}
-
+		done, fallback := normalizeToken(&builder, tokenizer, tokenType, &rawTagStack)
+		if fallback {
 			return text
-		case xhtml.TextToken:
-			rawText := string(tokenizer.Raw())
-			if isTagOpen(rawTagStack, tagPre) || isTagOpen(rawTagStack, tagCode) {
-				builder.WriteString(rawText)
-				continue
-			}
-
-			builder.WriteString(normalizeEscapedTextSegment(rawText))
-		case xhtml.StartTagToken, xhtml.SelfClosingTagToken:
-			tagName, _ := tokenizer.TagName()
-			tagNameLower := strings.ToLower(string(tagName))
-			builder.Write(tokenizer.Raw())
-			if tokenType != xhtml.SelfClosingTagToken && (tagNameLower == tagPre || tagNameLower == tagCode) {
-				rawTagStack = append(rawTagStack, tagNameLower)
-			}
-		case xhtml.EndTagToken:
-			tagName, _ := tokenizer.TagName()
-			tagNameLower := strings.ToLower(string(tagName))
-			builder.Write(tokenizer.Raw())
-			if tagNameLower == tagPre || tagNameLower == tagCode {
-				popOpenTag(&rawTagStack, tagNameLower)
-			}
-		case xhtml.CommentToken, xhtml.DoctypeToken:
-			builder.Write(tokenizer.Raw())
+		}
+		if done {
+			return builder.String()
 		}
 	}
+}
+
+func normalizeToken(builder *strings.Builder, tokenizer *xhtml.Tokenizer, tokenType xhtml.TokenType, rawTagStack *[]string) (bool, bool) {
+	switch tokenType {
+	case xhtml.ErrorToken:
+		return true, !errors.Is(tokenizer.Err(), io.EOF)
+	case xhtml.TextToken:
+		builder.WriteString(normalizeRawTextToken(string(tokenizer.Raw()), *rawTagStack))
+	case xhtml.StartTagToken, xhtml.SelfClosingTagToken:
+		handleNormalizeStartTag(builder, tokenizer, tokenType, rawTagStack)
+	case xhtml.EndTagToken:
+		handleNormalizeEndTag(builder, tokenizer, rawTagStack)
+	case xhtml.CommentToken, xhtml.DoctypeToken:
+		builder.Write(tokenizer.Raw())
+	}
+
+	return false, false
+}
+
+func normalizeRawTextToken(rawText string, rawTagStack []string) string {
+	if isTagOpen(rawTagStack, tagPre) || isTagOpen(rawTagStack, tagCode) {
+		return rawText
+	}
+
+	return normalizeEscapedTextSegment(rawText)
+}
+
+func handleNormalizeStartTag(builder *strings.Builder, tokenizer *xhtml.Tokenizer, tokenType xhtml.TokenType, rawTagStack *[]string) {
+	tagName, _ := tokenizer.TagName()
+	tagNameLower := strings.ToLower(string(tagName))
+
+	builder.Write(tokenizer.Raw())
+	if tokenType == xhtml.SelfClosingTagToken || !isRawTagName(tagNameLower) {
+		return
+	}
+
+	*rawTagStack = append(*rawTagStack, tagNameLower)
+}
+
+func handleNormalizeEndTag(builder *strings.Builder, tokenizer *xhtml.Tokenizer, rawTagStack *[]string) {
+	tagName, _ := tokenizer.TagName()
+	tagNameLower := strings.ToLower(string(tagName))
+
+	builder.Write(tokenizer.Raw())
+	if !isRawTagName(tagNameLower) {
+		return
+	}
+
+	popOpenTag(rawTagStack, tagNameLower)
+}
+
+func isRawTagName(tagName string) bool {
+	return tagName == tagPre || tagName == tagCode
 }
 
 func normalizeEscapedTextSegment(text string) string {
@@ -67,53 +95,80 @@ func normalizeEscapedTextSegment(text string) string {
 	var escapedTagStack []string
 
 	for idx := 0; idx < len(text); {
-		start := strings.Index(text[idx:], escapedTagOpen)
-		if start < 0 {
+		start, end, ok := findEscapedTagBounds(text, idx)
+		if !ok {
 			builder.WriteString(text[idx:])
 			break
 		}
 
-		start += idx
 		builder.WriteString(text[idx:start])
-
-		end := strings.Index(text[start:], escapedTagClose)
-		if end < 0 {
-			builder.WriteString(text[start:])
-			break
-		}
-
-		end += start + len(escapedTagClose)
 		candidate := text[start:end]
-		tag, ok := normalizeEscapedTag(candidate)
-		if !ok {
-			builder.WriteString(candidate)
-			idx = end
-			continue
-		}
-
-		switch {
-		case tag.selfClosing:
-			builder.WriteString(tag.rendered)
-		case tag.closing:
-			if len(escapedTagStack) > 0 && escapedTagStack[len(escapedTagStack)-1] == tag.name {
-				escapedTagStack = escapedTagStack[:len(escapedTagStack)-1]
-				builder.WriteString(tag.rendered)
-			} else {
-				builder.WriteString(candidate)
-			}
-		default:
-			if hasMatchingEscapedEndTag(text[end:], tag.name) {
-				escapedTagStack = append(escapedTagStack, tag.name)
-				builder.WriteString(tag.rendered)
-			} else {
-				builder.WriteString(candidate)
-			}
-		}
-
+		writeNormalizedEscapedTag(&builder, &escapedTagStack, text[end:], candidate)
 		idx = end
 	}
 
 	return builder.String()
+}
+
+func findEscapedTagBounds(text string, idx int) (int, int, bool) {
+	start := strings.Index(text[idx:], escapedTagOpen)
+	if start < 0 {
+		return 0, 0, false
+	}
+
+	start += idx
+	end := strings.Index(text[start:], escapedTagClose)
+	if end < 0 {
+		return start, 0, false
+	}
+
+	end += start + len(escapedTagClose)
+	return start, end, true
+}
+
+func writeNormalizedEscapedTag(builder *strings.Builder, escapedTagStack *[]string, remainingText string, candidate string) {
+	tag, ok := normalizeEscapedTag(candidate)
+	if !ok {
+		builder.WriteString(candidate)
+		return
+	}
+
+	if shouldRenderEscapedTag(tag, remainingText, escapedTagStack) {
+		builder.WriteString(tag.rendered)
+		return
+	}
+
+	builder.WriteString(candidate)
+}
+
+func shouldRenderEscapedTag(tag *normalizedEscapedTag, remainingText string, escapedTagStack *[]string) bool {
+	switch {
+	case tag.selfClosing:
+		return true
+	case tag.closing:
+		return popMatchingEscapedTag(escapedTagStack, tag.name)
+	default:
+		if !hasMatchingEscapedEndTag(remainingText, tag.name) {
+			return false
+		}
+
+		*escapedTagStack = append(*escapedTagStack, tag.name)
+		return true
+	}
+}
+
+func popMatchingEscapedTag(escapedTagStack *[]string, tagName string) bool {
+	if escapedTagStack == nil || len(*escapedTagStack) == 0 {
+		return false
+	}
+
+	lastIndex := len(*escapedTagStack) - 1
+	if (*escapedTagStack)[lastIndex] != tagName {
+		return false
+	}
+
+	*escapedTagStack = (*escapedTagStack)[:lastIndex]
+	return true
 }
 
 type normalizedEscapedTag struct {
