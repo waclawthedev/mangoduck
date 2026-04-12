@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testXAIModel = "grok-4-fast"
+
 func TestCreateResponse(t *testing.T) {
 	t.Parallel()
 
@@ -29,7 +31,7 @@ func TestCreateResponse(t *testing.T) {
 		var payload responses.CreateResponseRequest
 		err := json.NewDecoder(r.Body).Decode(&payload)
 		assert.NoError(t, err)
-		assert.Equal(t, "grok-4-fast", payload.Model)
+		assert.Equal(t, testXAIModel, payload.Model)
 		assert.Equal(t, "hello", payload.Input)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -45,7 +47,7 @@ func TestCreateResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	var request responses.CreateResponseRequest
-	request.Model = "grok-4-fast"
+	request.Model = testXAIModel
 	request.Input = "hello"
 
 	response, err := client.CreateResponse(context.Background(), &request)
@@ -81,7 +83,7 @@ func TestCreateResponseReturnsStringAPIError(t *testing.T) {
 	require.NoError(t, err)
 
 	var request responses.CreateResponseRequest
-	request.Model = "grok-4-fast"
+	request.Model = testXAIModel
 	request.Input = "hello"
 
 	response, err := client.CreateResponse(context.Background(), &request)

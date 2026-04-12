@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testOpenAIModel = "gpt-5-mini"
+
 func TestNewClientRequiresAPIKey(t *testing.T) {
 	t.Parallel()
 
@@ -37,7 +39,7 @@ func TestCreateResponse(t *testing.T) {
 		var payload responses.CreateResponseRequest
 		err := json.NewDecoder(r.Body).Decode(&payload)
 		assert.NoError(t, err)
-		assert.Equal(t, "gpt-5-mini", payload.Model)
+		assert.Equal(t, testOpenAIModel, payload.Model)
 		assert.Equal(t, "hello", payload.Input)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -53,7 +55,7 @@ func TestCreateResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	var request responses.CreateResponseRequest
-	request.Model = "gpt-5-mini"
+	request.Model = testOpenAIModel
 	request.Input = "hello"
 
 	response, err := client.CreateResponse(context.Background(), &request)
@@ -81,7 +83,7 @@ func TestCreateResponseReturnsAPIError(t *testing.T) {
 	require.NoError(t, err)
 
 	var request responses.CreateResponseRequest
-	request.Model = "gpt-5-mini"
+	request.Model = testOpenAIModel
 	request.Input = "hello"
 
 	response, err := client.CreateResponse(context.Background(), &request)

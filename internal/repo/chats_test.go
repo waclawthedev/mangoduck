@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testMemoryText = "Speak Ukrainian and remember project deadlines."
+
 func TestChatsRepoGetAndSetMemory(t *testing.T) {
 	t.Parallel()
 
@@ -22,16 +24,16 @@ func TestChatsRepoGetAndSetMemory(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, memoryText)
 
-	err = repository.SetMemory(context.Background(), 42, "Speak Ukrainian and remember project deadlines.")
+	err = repository.SetMemory(context.Background(), 42, testMemoryText)
 	require.NoError(t, err)
 
 	chatRecord, err := repository.GetByTGID(context.Background(), 42)
 	require.NoError(t, err)
-	require.Equal(t, "Speak Ukrainian and remember project deadlines.", chatRecord.MemoryText)
+	require.Equal(t, testMemoryText, chatRecord.MemoryText)
 
 	memoryText, err = repository.GetMemory(context.Background(), 42)
 	require.NoError(t, err)
-	require.Equal(t, "Speak Ukrainian and remember project deadlines.", memoryText)
+	require.Equal(t, testMemoryText, memoryText)
 }
 
 func TestChatsRepoMemoryReturnsNotFound(t *testing.T) {

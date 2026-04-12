@@ -16,6 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testFinalAnswer          = "Final answer"
+	testCronScheduleDaily    = "0 9 * * *"
+	testCronPromptDaily      = "send daily update"
+	testCronCreatedMessage   = "Cron task created."
+	testMemoryGetToolName    = "memory-get"
+	testMemorySetToolName    = "memory-set"
+	testCreateDailySchedule  = "Create daily schedule"
+	testListSchedulesCommand = "List schedules"
+)
+
 type stubClient struct {
 	requests []*responses.CreateResponseRequest
 	replies  []*responses.Response
@@ -333,8 +344,8 @@ func TestNewServiceUsesDefaultModel(t *testing.T) {
 	require.Equal(t, "function", client.requests[0].Tools[1].Type)
 	require.Equal(t, "web-search", client.requests[0].Tools[1].Name)
 	require.True(t, client.requests[0].Tools[1].Strict)
-	require.Equal(t, "memory-get", client.requests[0].Tools[2].Name)
-	require.Equal(t, "memory-set", client.requests[0].Tools[3].Name)
+	require.Equal(t, testMemoryGetToolName, client.requests[0].Tools[2].Name)
+	require.Equal(t, testMemorySetToolName, client.requests[0].Tools[3].Name)
 	require.Equal(t, "list-cron-tasks", client.requests[0].Tools[4].Name)
 	require.Equal(t, "add-cron-task", client.requests[0].Tools[5].Name)
 	require.Equal(t, "delete-cron-task", client.requests[0].Tools[6].Name)
@@ -372,8 +383,8 @@ func TestReplyOmitsDisabledBuiltInSearchTools(t *testing.T) {
 	require.Equal(t, "I don't have a response yet.", reply.Text)
 	require.Len(t, client.requests, 1)
 	require.Len(t, client.requests[0].Tools, 5)
-	require.Equal(t, "memory-get", client.requests[0].Tools[0].Name)
-	require.Equal(t, "memory-set", client.requests[0].Tools[1].Name)
+	require.Equal(t, testMemoryGetToolName, client.requests[0].Tools[0].Name)
+	require.Equal(t, testMemorySetToolName, client.requests[0].Tools[1].Name)
 	require.Equal(t, "list-cron-tasks", client.requests[0].Tools[2].Name)
 	require.Equal(t, "add-cron-task", client.requests[0].Tools[3].Name)
 	require.Equal(t, "delete-cron-task", client.requests[0].Tools[4].Name)
@@ -487,7 +498,7 @@ func TestReplyIncludesAndExecutesRuntimeTools(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"github__search","arguments":"{\"query\":\"hello\"}"}`),
-		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Final answer"}]}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"` + testFinalAnswer + `"}]}`),
 	}
 
 	var xSearcher stubXSearchExecutor
@@ -527,7 +538,7 @@ func TestReplyIncludesAndExecutesRuntimeTools(t *testing.T) {
 		Message: "hello",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Final answer", reply.Text)
+	require.Equal(t, testFinalAnswer, reply.Text)
 	require.Equal(t, 1, factory.opens)
 	require.Len(t, client.requests[0].Tools, 8)
 	require.Equal(t, "github__search", client.requests[0].Tools[7].Name)
@@ -580,7 +591,7 @@ func TestReplyUsesPersistedHistoryAndStoresFunctionLoopItems(t *testing.T) {
 			`{"type":"reasoning","id":"rs_1","encrypted_content":"enc_1"}`,
 			`{"type":"function_call","call_id":"call_1","name":"x-search","arguments":"{\"query\":\"latest xAI announcements\",\"allowed_x_handles\":[\"xai\"]}"}`,
 		),
-		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Final answer"}]}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"` + testFinalAnswer + `"}]}`),
 	}
 
 	var xSearcher stubXSearchExecutor
@@ -617,7 +628,7 @@ func TestReplyUsesPersistedHistoryAndStoresFunctionLoopItems(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"Searching on X for: latest xAI announcements"}, toolStatuses)
-	require.Equal(t, "Final answer", reply.Text)
+	require.Equal(t, testFinalAnswer, reply.Text)
 	require.True(t, reply.UsedTool)
 	require.True(t, reply.PlaceholderNeeded)
 	require.Len(t, xSearcher.requests, 1)
@@ -644,7 +655,7 @@ func TestReplyUsesPersistedHistoryAndStoresFunctionLoopItems(t *testing.T) {
 func TestReplyReplaysPersistedImageHistory(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
-		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Final answer"}]}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"` + testFinalAnswer + `"}]}`),
 	}
 
 	var xSearcher stubXSearchExecutor
@@ -673,7 +684,7 @@ func TestReplyReplaysPersistedImageHistory(t *testing.T) {
 		Message: "hello",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Final answer", reply.Text)
+	require.Equal(t, testFinalAnswer, reply.Text)
 
 	firstInput, ok := client.requests[0].Input.([]json.RawMessage)
 	require.True(t, ok)
@@ -687,7 +698,7 @@ func TestReplyNotifiesEveryToolStepWithSpecificStatus(t *testing.T) {
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"x-search","arguments":"{\"query\":\"golang release\",\"allowed_x_handles\":null,\"excluded_x_handles\":null,\"from_date\":null,\"to_date\":null,\"enable_image_understanding\":false,\"enable_video_understanding\":false}"}`),
 		buildResponse(`{"type":"function_call","call_id":"call_2","name":"web-search","arguments":"{\"query\":\"golang 1.25 release notes\",\"allowed_domains\":null,\"excluded_domains\":null,\"enable_image_understanding\":false}"}`),
-		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Final answer"}]}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"` + testFinalAnswer + `"}]}`),
 	}
 
 	var xSearcher stubXSearchExecutor
@@ -719,7 +730,7 @@ func TestReplyNotifiesEveryToolStepWithSpecificStatus(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Final answer", reply.Text)
+	require.Equal(t, testFinalAnswer, reply.Text)
 	require.Equal(t, []string{
 		"Searching on X for: golang release",
 		"Searching the web for: golang 1.25 release notes",
@@ -829,7 +840,7 @@ func TestReplyRoutesWebSearchFunctionCall(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
 		buildResponse(`{"type":"function_call","call_id":"call_1","name":"web-search","arguments":"{\"query\":\"latest xAI announcements\",\"allowed_domains\":[\"x.ai\"],\"excluded_domains\":null,\"enable_image_understanding\":true}"}`),
-		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Final answer"}]}`),
+		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"` + testFinalAnswer + `"}]}`),
 	}
 
 	var xSearcher stubXSearchExecutor
@@ -855,7 +866,7 @@ func TestReplyRoutesWebSearchFunctionCall(t *testing.T) {
 		Message: "hello",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Final answer", reply.Text)
+	require.Equal(t, testFinalAnswer, reply.Text)
 	require.Empty(t, xSearcher.requests)
 	require.Len(t, webSearcher.requests, 1)
 	require.Equal(t, "latest xAI announcements", webSearcher.requests[0].Query)
@@ -936,7 +947,7 @@ func TestReplyDoesNotFailOnEmptyWebSearchQuery(t *testing.T) {
 func TestReplyAddsCronTaskForAnyUser(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
-		buildResponse(`{"type":"function_call","call_id":"call_1","name":"add-cron-task","arguments":"{\"schedule\":\"0 9 * * *\",\"prompt\":\"send daily update\"}"}`),
+		buildResponse(`{"type":"function_call","call_id":"call_1","name":"add-cron-task","arguments":"{\"schedule\":\"` + testCronScheduleDaily + `\",\"prompt\":\"` + testCronPromptDaily + `\"}"}`),
 		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Scheduled"}]}`),
 	}
 
@@ -948,8 +959,8 @@ func TestReplyAddsCronTaskForAnyUser(t *testing.T) {
 		ID:            42,
 		ChatID:        99,
 		CreatedByTGID: 7,
-		Schedule:      "0 9 * * *",
-		Prompt:        "send daily update",
+		Schedule:      testCronScheduleDaily,
+		Prompt:        testCronPromptDaily,
 		CreatedAt:     time.Unix(0, 0),
 	}
 	var cronTaskManager stubCronTaskManager
@@ -968,7 +979,7 @@ func TestReplyAddsCronTaskForAnyUser(t *testing.T) {
 	reply, err := service.Reply(context.Background(), &chat.Request{
 		ChatID:   99,
 		UserTGID: 7,
-		Message:  "Create daily schedule",
+		Message:  testCreateDailySchedule,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Scheduled", reply.Text)
@@ -977,7 +988,7 @@ func TestReplyAddsCronTaskForAnyUser(t *testing.T) {
 	require.Equal(t, int64(42), cronTaskManager.addCalls[0].ID)
 	require.Contains(t, cronTaskStore.createCalls[0].Prompt, "Return the final user-facing answer only as Telegram-compatible HTML.")
 	require.Len(t, historyStore.appendCalls, 4)
-	require.Contains(t, string(historyStore.appendCalls[2][0]), "Cron task created.")
+	require.Contains(t, string(historyStore.appendCalls[2][0]), testCronCreatedMessage)
 }
 
 func TestReplyListsCronTasksForAnyUser(t *testing.T) {
@@ -995,8 +1006,8 @@ func TestReplyListsCronTasksForAnyUser(t *testing.T) {
 		{
 			ID:       11,
 			ChatID:   99,
-			Schedule: "0 9 * * *",
-			Prompt:   "send daily update",
+			Schedule: testCronScheduleDaily,
+			Prompt:   testCronPromptDaily,
 		},
 		{
 			ID:       12,
@@ -1021,7 +1032,7 @@ func TestReplyListsCronTasksForAnyUser(t *testing.T) {
 	reply, err := service.Reply(context.Background(), &chat.Request{
 		ChatID:   99,
 		UserTGID: 7,
-		Message:  "List schedules",
+		Message:  testListSchedulesCommand,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Listed", reply.Text)
@@ -1058,7 +1069,7 @@ func TestReplyReturnsEmptyCronTaskListForAnyUser(t *testing.T) {
 	reply, err := service.Reply(context.Background(), &chat.Request{
 		ChatID:   99,
 		UserTGID: 7,
-		Message:  "List schedules",
+		Message:  testListSchedulesCommand,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Empty", reply.Text)
@@ -1100,7 +1111,7 @@ func TestReplyListsCronTasksForNonAdmin(t *testing.T) {
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
 		ChatID:  99,
-		Message: "List schedules",
+		Message: testListSchedulesCommand,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Listed", reply.Text)
@@ -1111,7 +1122,7 @@ func TestReplyListsCronTasksForNonAdmin(t *testing.T) {
 func TestReplyAddsCronTaskForNonAdmin(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
-		buildResponse(`{"type":"function_call","call_id":"call_1","name":"add-cron-task","arguments":"{\"schedule\":\"0 9 * * *\",\"prompt\":\"send daily update\"}"}`),
+		buildResponse(`{"type":"function_call","call_id":"call_1","name":"add-cron-task","arguments":"{\"schedule\":\"` + testCronScheduleDaily + `\",\"prompt\":\"` + testCronPromptDaily + `\"}"}`),
 		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Scheduled"}]}`),
 	}
 
@@ -1123,8 +1134,8 @@ func TestReplyAddsCronTaskForNonAdmin(t *testing.T) {
 		ID:            42,
 		ChatID:        99,
 		CreatedByTGID: 0,
-		Schedule:      "0 9 * * *",
-		Prompt:        "send daily update",
+		Schedule:      testCronScheduleDaily,
+		Prompt:        testCronPromptDaily,
 		CreatedAt:     time.Unix(0, 0),
 	}
 	var cronTaskManager stubCronTaskManager
@@ -1142,13 +1153,13 @@ func TestReplyAddsCronTaskForNonAdmin(t *testing.T) {
 
 	reply, err := service.Reply(context.Background(), &chat.Request{
 		ChatID:  99,
-		Message: "Create daily schedule",
+		Message: testCreateDailySchedule,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "Scheduled", reply.Text)
 	require.Len(t, cronTaskStore.createCalls, 1)
 	require.Len(t, cronTaskManager.addCalls, 1)
-	require.Contains(t, string(historyStore.appendCalls[2][0]), "Cron task created.")
+	require.Contains(t, string(historyStore.appendCalls[2][0]), testCronCreatedMessage)
 }
 
 func TestReplyRejectsDeletingCronTaskFromAnotherChat(t *testing.T) {
@@ -1165,8 +1176,8 @@ func TestReplyRejectsDeletingCronTaskFromAnotherChat(t *testing.T) {
 	cronTaskStore.getResult = &repo.CronTask{
 		ID:       42,
 		ChatID:   777,
-		Schedule: "0 9 * * *",
-		Prompt:   "send daily update",
+		Schedule: testCronScheduleDaily,
+		Prompt:   testCronPromptDaily,
 	}
 	var cronTaskManager stubCronTaskManager
 
@@ -1238,8 +1249,8 @@ func TestExecuteScheduledDoesNotUseHistoryAndDisablesCronTools(t *testing.T) {
 	require.Len(t, client.requests[0].Tools, 4)
 	require.Equal(t, "x-search", client.requests[0].Tools[0].Name)
 	require.Equal(t, "web-search", client.requests[0].Tools[1].Name)
-	require.Equal(t, "memory-get", client.requests[0].Tools[2].Name)
-	require.Equal(t, "memory-set", client.requests[0].Tools[3].Name)
+	require.Equal(t, testMemoryGetToolName, client.requests[0].Tools[2].Name)
+	require.Equal(t, testMemorySetToolName, client.requests[0].Tools[3].Name)
 }
 
 func TestReplySystemPromptGuidesCronPromptAuthoring(t *testing.T) {
@@ -1268,7 +1279,7 @@ func TestReplySystemPromptGuidesCronPromptAuthoring(t *testing.T) {
 	reply, err := service.Reply(context.Background(), &chat.Request{
 		ChatID:   99,
 		UserTGID: 7,
-		Message:  "Create daily schedule",
+		Message:  testCreateDailySchedule,
 		IsAdmin:  true,
 	})
 	require.NoError(t, err)
@@ -1333,7 +1344,7 @@ func TestReplyPromptForRecurringRequestMakesCronToolsTheRightAction(t *testing.T
 	require.Equal(t, "Scheduled", reply.Text)
 	require.Len(t, cronTaskStore.createCalls, 1)
 	require.Empty(t, memoryStore.setCalls)
-	require.Contains(t, string(historyStore.appendCalls[2][0]), "Cron task created.")
+	require.Contains(t, string(historyStore.appendCalls[2][0]), testCronCreatedMessage)
 }
 
 func TestReplyReturnsClientError(t *testing.T) {
@@ -1410,8 +1421,8 @@ func TestReplyInjectsPersistedMemoryIntoSystemPrompt(t *testing.T) {
 func TestReplySupportsMemoryGetAndSetTools(t *testing.T) {
 	var client stubClient
 	client.replies = []*responses.Response{
-		buildResponse(`{"type":"function_call","call_id":"call_1","name":"memory-get","arguments":"{}"}`),
-		buildResponse(`{"type":"function_call","call_id":"call_2","name":"memory-set","arguments":"{\"text\":\"Reply in Ukrainian. Remember the project is MangoDuck.\"}"}`),
+		buildResponse(`{"type":"function_call","call_id":"call_1","name":"` + testMemoryGetToolName + `","arguments":"{}"}`),
+		buildResponse(`{"type":"function_call","call_id":"call_2","name":"` + testMemorySetToolName + `","arguments":"{\"text\":\"Reply in Ukrainian. Remember the project is MangoDuck.\"}"}`),
 		buildResponse(`{"type":"message","content":[{"type":"output_text","text":"Saved"}]}`),
 	}
 

@@ -12,6 +12,8 @@ import (
 	"mangoduck/internal/config"
 )
 
+const testMCPURL = "https://example.com/mcp"
+
 type stubConnector struct {
 	sessions    map[string]*stubSession
 	err         error
@@ -83,7 +85,7 @@ func TestBridgeOpenRunTranslatesMCPTools(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 		},
 	}, &stubConnector{
 		sessions: map[string]*stubSession{"github": session},
@@ -110,7 +112,7 @@ func TestRunExecuteRoutesPrefixedToolAndFlattensResult(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 		},
 	}, &stubConnector{
 		sessions: map[string]*stubSession{"github": session},
@@ -143,7 +145,7 @@ func TestRunExecuteFormatsToolErrors(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 		},
 	}, &stubConnector{
 		sessions: map[string]*stubSession{"github": session},
@@ -166,7 +168,7 @@ func TestRunCloseClosesSessions(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 		},
 	}, &stubConnector{
 		sessions: map[string]*stubSession{"github": session},
@@ -199,7 +201,7 @@ func TestBridgeOpenRunSupportsMixedHTTPAndStdioServers(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 			{Name: "filesystem", Enabled: true, Transport: "stdio", Stdio: &config.MCPStdioServer{Command: "npx", Args: []string{"server"}}},
 		},
 	}, &stubConnector{
@@ -229,7 +231,7 @@ func TestBridgeOpenRunSkipsServerWithToolListingFailure(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 			{Name: "filesystem", Enabled: true, Transport: "stdio", Stdio: &config.MCPStdioServer{Command: "npx", Args: []string{"server"}}},
 		},
 	}, &stubConnector{
@@ -265,7 +267,7 @@ func TestBridgePreflightChecksEnabledServers(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 			{Name: "filesystem", Enabled: true, Transport: "stdio", Stdio: &config.MCPStdioServer{Command: "npx", Args: []string{"server"}}},
 		},
 	}, &stubConnector{
@@ -289,7 +291,7 @@ func TestBridgePreflightReturnsNamedServerError(t *testing.T) {
 
 	bridge, err := newBridge(config.MCPConfig{
 		Servers: []*config.MCPServer{
-			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: "https://example.com/mcp"}},
+			{Name: "github", Enabled: true, Transport: "streamable_http", HTTP: &config.MCPHTTPServer{URL: testMCPURL}},
 			{Name: "filesystem", Enabled: true, Transport: "stdio", Stdio: &config.MCPStdioServer{Command: "npx", Args: []string{"server"}}},
 		},
 	}, &stubConnector{
