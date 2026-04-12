@@ -178,6 +178,7 @@ Mangoduck keeps the provider-side main chat flow stateless:
 
 ## Requirements
 
+- Docker available locally.
 - `make` available locally.
 - Telegram bot token.
 - API key for your configured Responses provider.

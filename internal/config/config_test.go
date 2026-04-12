@@ -12,7 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testTelegramToken = "telegram-token"
+const (
+	testTelegramToken = "telegram-token"
+	testDatabasePath  = "mangoduck.db"
+)
 
 func boolPtr(value bool) *bool {
 	return &value
@@ -119,7 +122,7 @@ responses:
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	require.Equal(t, "mangoduck.db", cfg.DatabasePath)
+	require.Equal(t, testDatabasePath, cfg.DatabasePath)
 	require.Equal(t, 10*time.Second, cfg.PollTimeout)
 	require.Equal(t, 30*time.Second, cfg.ResponsesTimeout)
 	require.Equal(t, "https://api.openai.com", cfg.OpenAIWebSearchBaseURL)
@@ -386,7 +389,7 @@ func TestValidateRejectsMissingResponsesProvider(t *testing.T) {
 	var cfg config.Config
 	cfg.TelegramToken = testTelegramToken
 	cfg.AdminTGIDs = []int64{42}
-	cfg.DatabasePath = "mangoduck.db"
+	cfg.DatabasePath = testDatabasePath
 	cfg.PollTimeout = 10 * time.Second
 	cfg.ResponsesTimeout = 30 * time.Second
 	cfg.ResponsesProviderAPIKey = "openai-test"
@@ -403,7 +406,7 @@ func TestValidateRejectsUnsupportedResponsesProvider(t *testing.T) {
 	var cfg config.Config
 	cfg.TelegramToken = testTelegramToken
 	cfg.AdminTGIDs = []int64{42}
-	cfg.DatabasePath = "mangoduck.db"
+	cfg.DatabasePath = testDatabasePath
 	cfg.PollTimeout = 10 * time.Second
 	cfg.ResponsesTimeout = 30 * time.Second
 	cfg.ResponsesProvider = "anthropic"
@@ -421,7 +424,7 @@ func TestValidateRejectsMissingResponsesProviderAPIKey(t *testing.T) {
 	var cfg config.Config
 	cfg.TelegramToken = testTelegramToken
 	cfg.AdminTGIDs = []int64{42}
-	cfg.DatabasePath = "mangoduck.db"
+	cfg.DatabasePath = testDatabasePath
 	cfg.PollTimeout = 10 * time.Second
 	cfg.ResponsesTimeout = 30 * time.Second
 	cfg.ResponsesProvider = "openai"
@@ -438,7 +441,7 @@ func TestValidateRejectsMissingResponsesModel(t *testing.T) {
 	var cfg config.Config
 	cfg.TelegramToken = testTelegramToken
 	cfg.AdminTGIDs = []int64{42}
-	cfg.DatabasePath = "mangoduck.db"
+	cfg.DatabasePath = testDatabasePath
 	cfg.PollTimeout = 10 * time.Second
 	cfg.ResponsesTimeout = 30 * time.Second
 	cfg.ResponsesProvider = "xai"
