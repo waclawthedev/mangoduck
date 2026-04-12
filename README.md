@@ -1,7 +1,7 @@
 <p align="center">
   <img src="./logo.png" alt="Mangoduck logo" width="380">
 </p>
-
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=waclawthedev_mangoduck&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=waclawthedev_mangoduck)
 <h1 align="center">Mangoduck</h1>
 
 <p align="center">
