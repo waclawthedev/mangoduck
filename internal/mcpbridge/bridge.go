@@ -22,6 +22,7 @@ const (
 	streamableHTTPTransport = "streamable_http"
 	stdioTransport          = "stdio"
 	clientName              = "mangoduck"
+	errNilServerConfig      = "mcp server config is nil"
 )
 
 type Bridge struct {
@@ -224,7 +225,7 @@ func (r *Run) Close() error {
 
 func (c *sdkConnector) Connect(ctx context.Context, server *config.MCPServer) (session, error) {
 	if server == nil {
-		return nil, errors.New("mcp server config is nil")
+		return nil, errors.New(errNilServerConfig)
 	}
 
 	client := mcp.NewClient(&mcp.Implementation{Name: clientName}, nil)
@@ -241,7 +242,7 @@ func preflightServer(ctx context.Context, conn connector, server *config.MCPServ
 		return errors.New("mcp connector is required")
 	}
 	if server == nil {
-		return errors.New("mcp server config is nil")
+		return errors.New(errNilServerConfig)
 	}
 
 	serverName := strings.TrimSpace(server.Name)
@@ -277,7 +278,7 @@ func preflightServer(ctx context.Context, conn connector, server *config.MCPServ
 
 func buildClientTransport(server *config.MCPServer) (mcp.Transport, error) {
 	if server == nil {
-		return nil, errors.New("mcp server config is nil")
+		return nil, errors.New(errNilServerConfig)
 	}
 
 	switch strings.TrimSpace(server.Transport) {

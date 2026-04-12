@@ -10,6 +10,8 @@ import (
 
 var ErrChatNotFound = errors.New("chat not found")
 
+const errRowsAffected = "getting rows affected: %w"
+
 type ChatStatus string
 
 const (
@@ -96,7 +98,7 @@ func (r *ChatsRepo) UpdateProfile(ctx context.Context, tgID int64, title string,
 
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("getting rows affected: %w", err)
+		return fmt.Errorf(errRowsAffected, err)
 	}
 	if rows == 0 {
 		return ErrChatNotFound
@@ -116,7 +118,7 @@ func (r *ChatsRepo) UpdateStatus(ctx context.Context, tgID int64, status ChatSta
 
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("getting rows affected: %w", err)
+		return fmt.Errorf(errRowsAffected, err)
 	}
 	if rows == 0 {
 		return ErrChatNotFound
@@ -175,7 +177,7 @@ func (r *ChatsRepo) SetMemory(ctx context.Context, tgID int64, memoryText string
 
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("getting rows affected: %w", err)
+		return fmt.Errorf(errRowsAffected, err)
 	}
 	if rows == 0 {
 		return ErrChatNotFound

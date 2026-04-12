@@ -577,35 +577,9 @@ func (s *Service) executeToolCall(ctx context.Context, call *responses.FunctionC
 
 	switch strings.TrimSpace(call.Name) {
 	case xSearchFunctionToolName:
-		searchRequest, err := parseXSearchRequest(call.Arguments)
-		if err != nil {
-			return "", err
-		}
-		if strings.TrimSpace(searchRequest.Query) == "" {
-			return searchQueryRequiredToolText, nil
-		}
-
-		searchResult, err := s.xSearcher.Search(ctx, searchRequest)
-		if err != nil {
-			return "", err
-		}
-
-		return strings.TrimSpace(searchResult.Text), nil
+		return s.executeXSearchToolCall(ctx, call.Arguments)
 	case webSearchFunctionToolName:
-		searchRequest, err := parseWebSearchRequest(call.Arguments)
-		if err != nil {
-			return "", err
-		}
-		if strings.TrimSpace(searchRequest.Query) == "" {
-			return searchQueryRequiredToolText, nil
-		}
-
-		searchResult, err := s.webSearcher.Search(ctx, searchRequest)
-		if err != nil {
-			return "", err
-		}
-
-		return strings.TrimSpace(searchResult.Text), nil
+		return s.executeWebSearchToolCall(ctx, call.Arguments)
 	case memoryGetFunctionToolName:
 		return s.getMemory(ctx, request)
 	case memorySetFunctionToolName:
@@ -617,15 +591,53 @@ func (s *Service) executeToolCall(ctx context.Context, call *responses.FunctionC
 	case deleteCronTaskToolName:
 		return s.deleteCronTask(ctx, request, call.Arguments)
 	default:
-		if runtime != nil {
-			output, handled, err := runtime.Execute(ctx, call.Name, call.Arguments)
-			if handled || err != nil {
-				return output, err
-			}
-		}
-
-		return "", fmt.Errorf("chat received unknown function call: %s", call.Name)
+		return executeRuntimeToolCall(ctx, runtime, call.Name, call.Arguments)
 	}
+}
+
+func (s *Service) executeXSearchToolCall(ctx context.Context, arguments string) (string, error) {
+	searchRequest, err := parseXSearchRequest(arguments)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(searchRequest.Query) == "" {
+		return searchQueryRequiredToolText, nil
+	}
+
+	searchResult, err := s.xSearcher.Search(ctx, searchRequest)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(searchResult.Text), nil
+}
+
+func (s *Service) executeWebSearchToolCall(ctx context.Context, arguments string) (string, error) {
+	searchRequest, err := parseWebSearchRequest(arguments)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(searchRequest.Query) == "" {
+		return searchQueryRequiredToolText, nil
+	}
+
+	searchResult, err := s.webSearcher.Search(ctx, searchRequest)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(searchResult.Text), nil
+}
+
+func executeRuntimeToolCall(ctx context.Context, runtime ToolRuntime, name string, arguments string) (string, error) {
+	if runtime != nil {
+		output, handled, err := runtime.Execute(ctx, name, arguments)
+		if handled || err != nil {
+			return output, err
+		}
+	}
+
+	return "", fmt.Errorf("chat received unknown function call: %s", name)
 }
 
 func (s *Service) getMemory(ctx context.Context, request *executionRequest) (string, error) {

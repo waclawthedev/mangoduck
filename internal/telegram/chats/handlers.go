@@ -87,42 +87,17 @@ func Chats(cfg config.Config, chatsRepo Repository) func(tele.Context) error {
 
 func ToggleChatStatus(cfg config.Config, chatsRepo Repository, approvalNotifier ApprovalNotifier) func(tele.Context) error {
 	return func(c tele.Context) error {
-		_, err := RequireActiveAdmin(c, cfg)
+		handled, err := ensureAdminPanelAccess(c, cfg)
 		if err != nil {
-			if errors.Is(err, shared.ErrResponseHandled) {
-				return nil
-			}
-
 			return err
 		}
+		if handled {
+			return nil
+		}
 
-		err = RequirePrivateChat(c, adminPanelPrivateChatText)
+		tgID, status, currentPanelState, err := parseToggleChatStatusArgs(c)
 		if err != nil {
-			if errors.Is(err, shared.ErrResponseHandled) {
-				return nil
-			}
-
 			return err
-		}
-
-		args := c.Args()
-		if len(args) != 3 {
-			return c.Respond(&tele.CallbackResponse{Text: "invalid callback", ShowAlert: true})
-		}
-
-		tgID, err := strconv.ParseInt(args[0], 10, 64)
-		if err != nil {
-			return c.Respond(&tele.CallbackResponse{Text: "invalid chat", ShowAlert: true})
-		}
-
-		status := repo.ChatStatus(args[1])
-		if status != repo.ChatStatusActive && status != repo.ChatStatusInactive {
-			return c.Respond(&tele.CallbackResponse{Text: "invalid status", ShowAlert: true})
-		}
-
-		currentPanelState, err := parsePanelState(args[2])
-		if err != nil {
-			return c.Respond(&tele.CallbackResponse{Text: "invalid page", ShowAlert: true})
 		}
 
 		targetChat, err := chatsRepo.GetByTGID(context.Background(), tgID)
@@ -151,6 +126,56 @@ func ToggleChatStatus(cfg config.Config, chatsRepo Repository, approvalNotifier 
 
 		return editChatsPanel(c, chatsRepo, currentPanelState)
 	}
+}
+
+func ensureAdminPanelAccess(c tele.Context, cfg config.Config) (bool, error) {
+	_, err := RequireActiveAdmin(c, cfg)
+	if err != nil {
+		if errors.Is(err, shared.ErrResponseHandled) {
+			return true, nil
+		}
+
+		return false, err
+	}
+
+	err = RequirePrivateChat(c, adminPanelPrivateChatText)
+	if err != nil {
+		if errors.Is(err, shared.ErrResponseHandled) {
+			return true, nil
+		}
+
+		return false, err
+	}
+
+	return false, nil
+}
+
+func parseToggleChatStatusArgs(c tele.Context) (int64, repo.ChatStatus, panelState, error) {
+	args := c.Args()
+	if len(args) != 3 {
+		return 0, "", panelState{}, respondCallbackError(c, "invalid callback")
+	}
+
+	tgID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return 0, "", panelState{}, respondCallbackError(c, "invalid chat")
+	}
+
+	status := repo.ChatStatus(args[1])
+	if status != repo.ChatStatusActive && status != repo.ChatStatusInactive {
+		return 0, "", panelState{}, respondCallbackError(c, "invalid status")
+	}
+
+	currentPanelState, err := parsePanelState(args[2])
+	if err != nil {
+		return 0, "", panelState{}, respondCallbackError(c, "invalid page")
+	}
+
+	return tgID, status, currentPanelState, nil
+}
+
+func respondCallbackError(c tele.Context, text string) error {
+	return c.Respond(&tele.CallbackResponse{Text: text, ShowAlert: true})
 }
 
 func ChatsPage(cfg config.Config, chatsRepo Repository) func(tele.Context) error {

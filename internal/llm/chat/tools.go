@@ -249,70 +249,94 @@ func buildToolCallStatusText(call *responses.FunctionCall) string {
 	name := strings.TrimSpace(call.Name)
 	switch name {
 	case xSearchFunctionToolName:
-		request, err := parseXSearchRequest(call.Arguments)
-		if err != nil {
-			return "Searching on X..."
-		}
-
-		query := summarizeStatusText(request.Query, 80)
-		if query == "" {
-			return "Searching on X..."
-		}
-
-		return "Searching on X for: " + query
+		return buildXSearchStatusText(call.Arguments)
 	case webSearchFunctionToolName:
-		request, err := parseWebSearchRequest(call.Arguments)
-		if err != nil {
-			return "Searching the web..."
-		}
-
-		query := summarizeStatusText(request.Query, 80)
-		if query == "" {
-			return "Searching the web..."
-		}
-
-		return "Searching the web for: " + query
+		return buildWebSearchStatusText(call.Arguments)
 	case memoryGetFunctionToolName:
 		return "Reading saved memory..."
 	case memorySetFunctionToolName:
-		payload, err := parseSetMemoryArguments(call.Arguments)
-		if err != nil {
-			return "Updating saved memory..."
-		}
-		if payload.Text == "" {
-			return "Clearing saved memory..."
-		}
-
-		return "Updating saved memory..."
+		return buildMemoryStatusText(call.Arguments)
 	case listCronTasksToolName:
 		return "Listing scheduled tasks..."
 	case addCronTaskFunctionToolName:
-		payload, err := parseAddCronTaskArguments(call.Arguments)
-		if err != nil {
-			return "Creating scheduled task..."
-		}
-
-		schedule := summarizeStatusText(payload.Schedule, 60)
-		if schedule == "" {
-			return "Creating scheduled task..."
-		}
-
-		return fmt.Sprintf("Creating scheduled task (%s)...", schedule)
+		return buildAddCronTaskStatusText(call.Arguments)
 	case deleteCronTaskToolName:
-		taskID, err := parseDeleteCronTaskArguments(call.Arguments)
-		if err != nil {
-			return "Deleting scheduled task..."
-		}
-
-		return fmt.Sprintf("Deleting scheduled task #%d...", taskID)
+		return buildDeleteCronTaskStatusText(call.Arguments)
 	default:
-		friendlyName := summarizeStatusText(humanizeToolName(name), 80)
-		if friendlyName == "" {
-			return "Running a tool..."
-		}
-
-		return fmt.Sprintf("Calling tool: %s...", friendlyName)
+		return buildGenericToolStatusText(name)
 	}
+}
+
+func buildXSearchStatusText(arguments string) string {
+	request, err := parseXSearchRequest(arguments)
+	if err != nil {
+		return "Searching on X..."
+	}
+
+	query := summarizeStatusText(request.Query, 80)
+	if query == "" {
+		return "Searching on X..."
+	}
+
+	return "Searching on X for: " + query
+}
+
+func buildWebSearchStatusText(arguments string) string {
+	request, err := parseWebSearchRequest(arguments)
+	if err != nil {
+		return "Searching the web..."
+	}
+
+	query := summarizeStatusText(request.Query, 80)
+	if query == "" {
+		return "Searching the web..."
+	}
+
+	return "Searching the web for: " + query
+}
+
+func buildMemoryStatusText(arguments string) string {
+	payload, err := parseSetMemoryArguments(arguments)
+	if err != nil {
+		return "Updating saved memory..."
+	}
+	if payload.Text == "" {
+		return "Clearing saved memory..."
+	}
+
+	return "Updating saved memory..."
+}
+
+func buildAddCronTaskStatusText(arguments string) string {
+	payload, err := parseAddCronTaskArguments(arguments)
+	if err != nil {
+		return "Creating scheduled task..."
+	}
+
+	schedule := summarizeStatusText(payload.Schedule, 60)
+	if schedule == "" {
+		return "Creating scheduled task..."
+	}
+
+	return fmt.Sprintf("Creating scheduled task (%s)...", schedule)
+}
+
+func buildDeleteCronTaskStatusText(arguments string) string {
+	taskID, err := parseDeleteCronTaskArguments(arguments)
+	if err != nil {
+		return "Deleting scheduled task..."
+	}
+
+	return fmt.Sprintf("Deleting scheduled task #%d...", taskID)
+}
+
+func buildGenericToolStatusText(name string) string {
+	friendlyName := summarizeStatusText(humanizeToolName(name), 80)
+	if friendlyName == "" {
+		return "Running a tool..."
+	}
+
+	return fmt.Sprintf("Calling tool: %s...", friendlyName)
 }
 
 func humanizeToolName(name string) string {
