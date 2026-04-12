@@ -97,11 +97,11 @@ func TestAPIError(t *testing.T) {
 	t.Parallel()
 
 	var apiErr responses.APIError
-	apiErr.Provider = "portkey/openai"
+	apiErr.Provider = "openai"
 	apiErr.StatusCode = 401
 	apiErr.Message = "invalid api key"
 
-	require.Equal(t, "portkey/openai responses api error (status 401): invalid api key", apiErr.Error())
+	require.Equal(t, "openai responses api error (status 401): invalid api key", apiErr.Error())
 	var actual *responses.APIError
 	require.ErrorAs(t, &apiErr, &actual)
 }

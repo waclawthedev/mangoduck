@@ -95,3 +95,58 @@ func TestCreateResponseReturnsAPIError(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, apiErr.StatusCode)
 	require.Equal(t, "invalid api key", apiErr.Message)
 }
+
+func TestCreateResponsePreservesToolsAndInputItems(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload responses.CreateResponseRequest
+		err := json.NewDecoder(r.Body).Decode(&payload)
+		assert.NoError(t, err)
+		assert.Len(t, payload.Tools, 1)
+		assert.Equal(t, "function", payload.Tools[0].Type)
+		assert.Equal(t, "remember", payload.Tools[0].Name)
+		assert.Equal(t, "required", payload.ToolChoice)
+
+		inputItems, ok := payload.Input.([]any)
+		assert.True(t, ok)
+		assert.Len(t, inputItems, 1)
+
+		w.Header().Set("Content-Type", "application/json")
+		_, err = w.Write([]byte(`{"id":"resp_tools","object":"response","model":"gpt-5-mini","status":"completed","output":[{"type":"function_call","call_id":"call_123","name":"remember","arguments":"{\"text\":\"hello\"}"}]}`))
+		assert.NoError(t, err)
+	}))
+	defer server.Close()
+
+	client, err := openai.NewClient(openai.Config{
+		APIKey:  "openai-key",
+		BaseURL: server.URL,
+	})
+	require.NoError(t, err)
+
+	var request responses.CreateResponseRequest
+	request.Model = testOpenAIModel
+	request.Input = []any{
+		map[string]any{
+			"type":    "function_call_output",
+			"call_id": "call_prev",
+			"output":  "ok",
+		},
+	}
+	request.Tools = []*responses.Tool{
+		{
+			Type:        "function",
+			Name:        "remember",
+			Description: "Remember text",
+			Parameters: map[string]any{
+				"type": "object",
+			},
+		},
+	}
+	request.ToolChoice = "required"
+
+	response, err := client.CreateResponse(context.Background(), &request)
+	require.NoError(t, err)
+	require.Len(t, response.FunctionCalls(), 1)
+	require.Equal(t, "remember", response.FunctionCalls()[0].Name)
+}

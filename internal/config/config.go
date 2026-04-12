@@ -21,27 +21,26 @@ const (
 )
 
 type Config struct {
-	TelegramToken          string
-	AdminTGIDs             []int64
-	AdminTGID              int64
-	DatabasePath           string
-	PollTimeout            time.Duration
-	PortkeyBaseURL         string
-	PortkeyProvider        string
-	PortkeyProviderAPIKey  string
-	MainModel              string
-	ResponsesTimeout       time.Duration
-	EnableOpenAIWebSearch  *bool
-	OpenAIWebSearchAPIKey  string
-	OpenAIWebSearchBaseURL string
-	OpenAIWebSearchModel   string
-	OpenAIWebSearchTimeout time.Duration
-	EnableXSearch          *bool
-	XAIAPIKey              string
-	XAIBaseURL             string
-	XAIModel               string
-	XAITimeout             time.Duration
-	MCP                    MCPConfig
+	TelegramToken           string
+	AdminTGIDs              []int64
+	AdminTGID               int64
+	DatabasePath            string
+	PollTimeout             time.Duration
+	ResponsesProvider       string
+	ResponsesProviderAPIKey string
+	MainModel               string
+	ResponsesTimeout        time.Duration
+	EnableOpenAIWebSearch   *bool
+	OpenAIWebSearchAPIKey   string
+	OpenAIWebSearchBaseURL  string
+	OpenAIWebSearchModel    string
+	OpenAIWebSearchTimeout  time.Duration
+	EnableXSearch           *bool
+	XAIAPIKey               string
+	XAIBaseURL              string
+	XAIModel                string
+	XAITimeout              time.Duration
+	MCP                     MCPConfig
 }
 
 type MCPConfig struct {
@@ -93,7 +92,6 @@ type databaseConfig struct {
 }
 
 type responsesConfig struct {
-	BaseURL        string `yaml:"base_url"`
 	Provider       string `yaml:"provider"`
 	ProviderAPIKey string `yaml:"provider_api_key"`
 	Model          string `yaml:"model"`
@@ -274,9 +272,8 @@ func applyResponsesConfig(cfg *Config, parsed *responsesConfig) error {
 		return nil
 	}
 
-	cfg.PortkeyBaseURL = strings.TrimSpace(parsed.BaseURL)
-	cfg.PortkeyProvider = strings.TrimSpace(parsed.Provider)
-	cfg.PortkeyProviderAPIKey = strings.TrimSpace(parsed.ProviderAPIKey)
+	cfg.ResponsesProvider = strings.TrimSpace(parsed.Provider)
+	cfg.ResponsesProviderAPIKey = strings.TrimSpace(parsed.ProviderAPIKey)
 	cfg.MainModel = strings.TrimSpace(parsed.Model)
 
 	timeout, err := parseDurationWithDefault(parsed.Timeout, defaultResponsesTimeout, "responses.timeout")
@@ -518,12 +515,40 @@ func (c Config) Validate() error {
 		return fmt.Errorf("responses timeout must be positive, got %s", c.ResponsesTimeout)
 	}
 
+	err = validateResponsesConfig(c)
+	if err != nil {
+		return err
+	}
+
 	err = validateOpenAIWebSearchConfig(c)
 	if err != nil {
 		return err
 	}
 
 	return validateXSearchConfig(c)
+}
+
+func validateResponsesConfig(c Config) error {
+	provider := strings.TrimSpace(c.ResponsesProvider)
+	if provider == "" {
+		return errors.New("responses provider is empty")
+	}
+
+	switch provider {
+	case "openai", "xai":
+	default:
+		return fmt.Errorf("responses provider %q is not supported", provider)
+	}
+
+	if strings.TrimSpace(c.ResponsesProviderAPIKey) == "" {
+		return errors.New("responses provider api key is empty")
+	}
+
+	if strings.TrimSpace(c.MainModel) == "" {
+		return errors.New("responses model is empty")
+	}
+
+	return nil
 }
 
 func validateDatabasePath(path string) error {

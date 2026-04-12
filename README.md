@@ -29,7 +29,7 @@ The bot runs in an agentic loop on top of the Responses API, can call built-in t
 
 ## Features
 
-- Agentic Telegram chat flow with OpenAI-compatible Responses API.
+- Agentic Telegram chat flow with direct OpenAI or xAI Responses API providers.
 - Works in private chats, groups, and supergroups.
 - Mentions-only behavior in group chats to avoid noise.
 - Chat-level access control managed by admins via `/chats`.
@@ -178,26 +178,15 @@ Mangoduck keeps the provider-side main chat flow stateless:
 
 ## Requirements
 
-- Docker available locally.
 - `make` available locally.
 - Telegram bot token.
 - API key for your configured Responses provider.
 - OpenAI API key for `web-search`, if enabled.
 - xAI API key for `x-search`, if enabled.
 
-Go must be run only through the provided `Makefile` targets. Do not run `go` directly for project tasks, and use direct Docker commands only for the documented local gateway setup or the provided `make` targets.
-
 ## Quick Start
 
-### 1. Start the local gateway
-
-The example config expects a Portkey-compatible gateway on `http://127.0.0.1:8787`.
-
-```bash
-docker compose up -d
-```
-
-### 2. Create local config
+### 1. Create local config
 
 Use the committed example config as the starting point:
 
@@ -209,14 +198,16 @@ Then fill in:
 
 - `telegram.token`
 - `admin.tg_ids`
+- `responses.provider`: `openai` or `xai`
 - `responses.provider_api_key`
+- `responses.model`
 - `built_it_tools.web_search.api_key`, if you enable `web-search`
 - `built_it_tools.x_search.api_key`, if you enable `x-search`
 - any MCP server settings you want to enable
 
 `config.yaml` is ignored by Git and should be treated as a secrets file.
 
-### 3. Run the bot
+### 2. Run the bot
 
 ```bash
 make go CMD="run ./cmd/mangoduck"
@@ -249,8 +240,7 @@ The safe example config lives in [`config.yaml.dist`](config.yaml.dist).
 
 ### Responses API
 
-- `responses.base_url`: gateway or provider base URL
-- `responses.provider`: provider name sent to the gateway
+- `responses.provider`: main provider, either `openai` or `xai`
 - `responses.provider_api_key`: API key for the configured provider
 - `responses.model`: main model, for example `gpt-5-mini`
 - `responses.timeout`: request timeout, default `30s`
@@ -296,10 +286,6 @@ make go CMD="test ./internal/llm/chat -run TestName"
 ```
 
 ### Notes
-
-- All Go commands must go through `make`.
-- The Go module cache is mounted from `$(HOME)/go/pkg/mod`.
-- `make` targets use Docker images defined in the [`Makefile`](Makefile).
 
 ## Chat Model
 

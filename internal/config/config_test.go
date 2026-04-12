@@ -36,7 +36,6 @@ database:
   path: "data.db"
 
 responses:
-  base_url: "https://api.portkey.ai"
   provider: "openai"
   provider_api_key: "openai-test"
   model: "gpt-5"
@@ -76,9 +75,8 @@ mcp:
 	require.Equal(t, int64(42), cfg.AdminTGID)
 	require.Equal(t, "data.db", cfg.DatabasePath)
 	require.Equal(t, 12*time.Second, cfg.PollTimeout)
-	require.Equal(t, "https://api.portkey.ai", cfg.PortkeyBaseURL)
-	require.Equal(t, "openai", cfg.PortkeyProvider)
-	require.Equal(t, "openai-test", cfg.PortkeyProviderAPIKey)
+	require.Equal(t, "openai", cfg.ResponsesProvider)
+	require.Equal(t, "openai-test", cfg.ResponsesProviderAPIKey)
 	require.Equal(t, "gpt-5", cfg.MainModel)
 	require.Equal(t, 15*time.Second, cfg.ResponsesTimeout)
 	require.Equal(t, "openai-web-search-test", cfg.OpenAIWebSearchAPIKey)
@@ -112,6 +110,11 @@ telegram:
 admin:
   tg_ids:
     - 42
+
+responses:
+  provider: "openai"
+  provider_api_key: "openai-test"
+  model: "gpt-5"
 `, testTelegramToken))
 
 	cfg, err := config.Load()
@@ -221,6 +224,30 @@ responses:
 	_, err := config.Load()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "responses.timeout must be a valid duration")
+}
+
+func TestLoadRejectsResponsesBaseURL(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	writeConfigFile(t, tempDir, fmt.Sprintf(`
+telegram:
+  token: "%s"
+
+admin:
+  tg_ids:
+    - 42
+
+responses:
+  base_url: "https://api.openai.com"
+  provider: "openai"
+  provider_api_key: "openai-test"
+  model: "gpt-5"
+`, testTelegramToken))
+
+	_, err := config.Load()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "field base_url not found")
 }
 
 func TestLoadRejectsInvalidMCPServer(t *testing.T) {
@@ -353,6 +380,75 @@ func TestConfigYAMLDistIsValid(t *testing.T) {
 
 	_, err = config.Load()
 	require.NoError(t, err)
+}
+
+func TestValidateRejectsMissingResponsesProvider(t *testing.T) {
+	var cfg config.Config
+	cfg.TelegramToken = testTelegramToken
+	cfg.AdminTGIDs = []int64{42}
+	cfg.DatabasePath = "mangoduck.db"
+	cfg.PollTimeout = 10 * time.Second
+	cfg.ResponsesTimeout = 30 * time.Second
+	cfg.ResponsesProviderAPIKey = "openai-test"
+	cfg.MainModel = "gpt-5"
+	cfg.EnableOpenAIWebSearch = boolPtr(false)
+	cfg.EnableXSearch = boolPtr(false)
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "responses provider is empty")
+}
+
+func TestValidateRejectsUnsupportedResponsesProvider(t *testing.T) {
+	var cfg config.Config
+	cfg.TelegramToken = testTelegramToken
+	cfg.AdminTGIDs = []int64{42}
+	cfg.DatabasePath = "mangoduck.db"
+	cfg.PollTimeout = 10 * time.Second
+	cfg.ResponsesTimeout = 30 * time.Second
+	cfg.ResponsesProvider = "anthropic"
+	cfg.ResponsesProviderAPIKey = "test-key"
+	cfg.MainModel = "gpt-5"
+	cfg.EnableOpenAIWebSearch = boolPtr(false)
+	cfg.EnableXSearch = boolPtr(false)
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorContains(t, err, `responses provider "anthropic" is not supported`)
+}
+
+func TestValidateRejectsMissingResponsesProviderAPIKey(t *testing.T) {
+	var cfg config.Config
+	cfg.TelegramToken = testTelegramToken
+	cfg.AdminTGIDs = []int64{42}
+	cfg.DatabasePath = "mangoduck.db"
+	cfg.PollTimeout = 10 * time.Second
+	cfg.ResponsesTimeout = 30 * time.Second
+	cfg.ResponsesProvider = "openai"
+	cfg.MainModel = "gpt-5"
+	cfg.EnableOpenAIWebSearch = boolPtr(false)
+	cfg.EnableXSearch = boolPtr(false)
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "responses provider api key is empty")
+}
+
+func TestValidateRejectsMissingResponsesModel(t *testing.T) {
+	var cfg config.Config
+	cfg.TelegramToken = testTelegramToken
+	cfg.AdminTGIDs = []int64{42}
+	cfg.DatabasePath = "mangoduck.db"
+	cfg.PollTimeout = 10 * time.Second
+	cfg.ResponsesTimeout = 30 * time.Second
+	cfg.ResponsesProvider = "xai"
+	cfg.ResponsesProviderAPIKey = "xai-test"
+	cfg.EnableOpenAIWebSearch = boolPtr(false)
+	cfg.EnableXSearch = boolPtr(false)
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "responses model is empty")
 }
 
 func writeConfigFile(t *testing.T, dir string, content string) {
