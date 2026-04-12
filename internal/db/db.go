@@ -75,13 +75,13 @@ func sqliteDSN(dbPath string) string {
 func configureSQLite(conn *sql.DB) error {
 	// WAL improves concurrency for file-backed databases, but the bot still
 	// works correctly with SQLite's default journal mode.
-	_, _ = sqliteJournalMode(conn, "WAL")
+	_, _ = sqliteJournalMode(conn)
 	return nil
 }
 
-func sqliteJournalMode(conn *sql.DB, mode string) (string, error) {
+func sqliteJournalMode(conn *sql.DB) (string, error) {
 	var journalMode string
-	err := conn.QueryRowContext(context.Background(), `PRAGMA journal_mode = `+mode).Scan(&journalMode)
+	err := conn.QueryRowContext(context.Background(), `PRAGMA journal_mode = WAL`).Scan(&journalMode)
 	if err != nil {
 		return "", err
 	}
