@@ -27,6 +27,16 @@ type Responder interface {
 	Reply(ctx context.Context, request *llmchat.Request) (*llmchat.Result, error)
 }
 
+type incomingChatRequest struct {
+	sender  *tele.User
+	message string
+	photo   *tele.Photo
+}
+
+type chatReplyState struct {
+	placeholderMessage *tele.Message
+}
+
 const ToolPlaceholderText = "Running a tool..."
 
 const defaultChatRequestTimeout = 30 * time.Second
@@ -106,34 +116,20 @@ func editPlaceholderReply(c tele.Context, msg tele.Editable, text string) error 
 
 func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) func(tele.Context) error {
 	return func(c tele.Context) error {
-		sender := c.Sender()
-		if sender == nil {
-			return errors.New("sender is nil")
-		}
-
-		message := strings.TrimSpace(c.Text())
-		photo := resolveRequestPhoto(c.Message())
-		if message == "" && photo == nil {
-			return nil
-		}
-
-		message, shouldRespond := normalizeIncomingMessage(c, message)
-		if !shouldRespond || (message == "" && photo == nil) {
-			return nil
-		}
-
-		currentChatRecord, _, err := chats.EnsureCurrentChat(c, chatsRepo)
+		incoming, shouldRespond, err := resolveIncomingChatRequest(c)
 		if err != nil {
 			return err
 		}
+		if !shouldRespond {
+			return nil
+		}
 
-		_, err = chats.RequireResolvedActiveChat(c, currentChatRecord)
+		handled, err := ensureResolvedActiveChat(c, chatsRepo)
 		if err != nil {
-			if errors.Is(err, shared.ErrResponseHandled) {
-				return nil
-			}
-
 			return err
+		}
+		if handled {
+			return nil
 		}
 
 		stopTyping := startTyping(c)
@@ -142,43 +138,10 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 		replyCtx, cancel := context.WithTimeout(context.Background(), resolveChatRequestTimeout(cfg))
 		defer cancel()
 
-		currentMessage := c.Message()
-		var placeholderMessage *tele.Message
-		var request llmchat.Request
-		request.ChatID = c.Chat().ID
-		request.UserTGID = sender.ID
-		request.Message = buildLLMMessage(sender, currentMessage, message)
-		request.Image, err = requestImageBuilder(replyCtx, c, photo)
+		var replyState chatReplyState
+		request, err := buildChatRequest(replyCtx, c, cfg, incoming, &replyState)
 		if err != nil {
-			if strings.TrimSpace(message) == "" {
-				return fmt.Errorf("reading telegram photo: %w", err)
-			}
-
-			request.Image = nil
-		}
-		request.IsAdmin = cfg.IsAdminTGID(sender.ID)
-		request.NotifyToolCall = func(statusText string) error {
-			statusText = strings.TrimSpace(statusText)
-			if statusText == "" {
-				statusText = ToolPlaceholderText
-			}
-
-			if placeholderMessage != nil {
-				editErr := editPlaceholderReply(c, placeholderMessage, statusText)
-				if editErr != nil && !errors.Is(tgerr.Normalize(editErr), tgerr.ErrMessageNotModified) {
-					return fmt.Errorf("updating chat placeholder: %w", editErr)
-				}
-
-				return nil
-			}
-
-			sentMessage, sendErr := placeholderSender(c, statusText)
-			if sendErr != nil {
-				return fmt.Errorf("sending chat placeholder: %w", sendErr)
-			}
-
-			placeholderMessage = sentMessage
-			return nil
+			return err
 		}
 
 		reply, err := responder.Reply(replyCtx, &request)
@@ -190,26 +153,129 @@ func Chat(cfg config.Config, chatsRepo chats.Repository, responder Responder) fu
 			return errors.New("chat reply is nil")
 		}
 
-		if placeholderMessage != nil {
-			replyText := strings.TrimSpace(reply.Text)
-			if replyText == "" {
-				replyText = llmchat.DefaultNoResponseText
-			}
+		return deliverChatReply(c, &replyState, reply)
+	}
+}
 
-			err = editPlaceholderReply(c, placeholderMessage, replyText)
-			if err != nil {
-				if errors.Is(tgerr.Normalize(err), tgerr.ErrMessageNotModified) {
-					return nil
-				}
+func resolveIncomingChatRequest(c tele.Context) (*incomingChatRequest, bool, error) {
+	sender := c.Sender()
+	if sender == nil {
+		return nil, false, errors.New("sender is nil")
+	}
 
-				return fmt.Errorf("editing chat placeholder: %w", err)
-			}
+	message := strings.TrimSpace(c.Text())
+	photo := resolveRequestPhoto(c.Message())
+	if message == "" && photo == nil {
+		return nil, false, nil
+	}
 
-			return nil
+	message, shouldRespond := normalizeIncomingMessage(c, message)
+	if !shouldRespond || (message == "" && photo == nil) {
+		return nil, false, nil
+	}
+
+	var incoming incomingChatRequest
+	incoming.sender = sender
+	incoming.message = message
+	incoming.photo = photo
+
+	return &incoming, true, nil
+}
+
+func ensureResolvedActiveChat(c tele.Context, chatsRepo chats.Repository) (bool, error) {
+	currentChatRecord, _, err := chats.EnsureCurrentChat(c, chatsRepo)
+	if err != nil {
+		return false, err
+	}
+
+	_, err = chats.RequireResolvedActiveChat(c, currentChatRecord)
+	if err != nil {
+		if errors.Is(err, shared.ErrResponseHandled) {
+			return true, nil
 		}
 
+		return false, err
+	}
+
+	return false, nil
+}
+
+func buildChatRequest(ctx context.Context, c tele.Context, cfg config.Config, incoming *incomingChatRequest, replyState *chatReplyState) (llmchat.Request, error) {
+	var request llmchat.Request
+	request.ChatID = c.Chat().ID
+	request.UserTGID = incoming.sender.ID
+	request.Message = buildLLMMessage(incoming.sender, c.Message(), incoming.message)
+
+	image, err := loadRequestImage(ctx, c, incoming.photo, incoming.message)
+	if err != nil {
+		return request, err
+	}
+	request.Image = image
+	request.IsAdmin = cfg.IsAdminTGID(incoming.sender.ID)
+	request.NotifyToolCall = func(statusText string) error {
+		return notifyToolCall(c, replyState, statusText)
+	}
+
+	return request, nil
+}
+
+func loadRequestImage(ctx context.Context, c tele.Context, photo *tele.Photo, message string) (*llmchat.InputImage, error) {
+	image, err := requestImageBuilder(ctx, c, photo)
+	if err == nil {
+		return image, nil
+	}
+
+	if strings.TrimSpace(message) == "" {
+		return nil, fmt.Errorf("reading telegram photo: %w", err)
+	}
+
+	return nil, nil
+}
+
+func notifyToolCall(c tele.Context, replyState *chatReplyState, statusText string) error {
+	statusText = strings.TrimSpace(statusText)
+	if statusText == "" {
+		statusText = ToolPlaceholderText
+	}
+
+	if replyState.placeholderMessage != nil {
+		return updatePlaceholderReply(c, replyState.placeholderMessage, statusText)
+	}
+
+	sentMessage, err := placeholderSender(c, statusText)
+	if err != nil {
+		return fmt.Errorf("sending chat placeholder: %w", err)
+	}
+
+	replyState.placeholderMessage = sentMessage
+	return nil
+}
+
+func updatePlaceholderReply(c tele.Context, msg tele.Editable, text string) error {
+	err := editPlaceholderReply(c, msg, text)
+	if err == nil || errors.Is(tgerr.Normalize(err), tgerr.ErrMessageNotModified) {
+		return nil
+	}
+
+	return fmt.Errorf("updating chat placeholder: %w", err)
+}
+
+func deliverChatReply(c tele.Context, replyState *chatReplyState, reply *llmchat.Result) error {
+	if replyState.placeholderMessage == nil {
 		return sendReply(c, reply.Text)
 	}
+
+	replyText := strings.TrimSpace(reply.Text)
+	if replyText == "" {
+		replyText = llmchat.DefaultNoResponseText
+	}
+
+	err := editPlaceholderReply(c, replyState.placeholderMessage, replyText)
+	if err == nil || errors.Is(tgerr.Normalize(err), tgerr.ErrMessageNotModified) {
+		return nil
+	}
+
+	return fmt.Errorf("editing chat placeholder: %w", err)
 }
 
 func resolveRequestPhoto(message *tele.Message) *tele.Photo {
